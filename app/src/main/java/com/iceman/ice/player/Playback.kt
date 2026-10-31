@@ -99,6 +99,11 @@ object Playback {
             try { p.detachViews() } catch (_: Exception) {}
             p.attachViews(view, null, true, false)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            // VLC only starts drawing on a new view when the video track restarts.
+            val track = p.videoTrack
+            if (track >= 0) main.postDelayed({
+                if (player === p && layout === view) { p.videoTrack = -1; p.videoTrack = track }
+            }, 150)
         }
         layout = view
     }

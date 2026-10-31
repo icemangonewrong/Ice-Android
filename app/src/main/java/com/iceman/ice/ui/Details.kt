@@ -116,7 +116,7 @@ private fun WatchedButton(item: Item) {
         Icon(if (item.isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle, null,
             tint = if (item.isWatched) LocalAccent.current else Muted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
-        Text(if (item.isWatched) "Watched" else "Mark watched")
+        Text("Watched", maxLines = 1)
     }
 }
 
