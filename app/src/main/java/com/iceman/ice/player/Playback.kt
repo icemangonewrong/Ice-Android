@@ -113,17 +113,18 @@ object Playback {
                 try { player?.updateVideoSurfaces() } catch (_: Exception) {}
             } else {
                 main.removeCallbacks(connectNow)
-                main.postDelayed(connectNow, 500)
+                main.postDelayed(connectNow, 50)
             }
         }
         main.removeCallbacks(connectNow)
-        main.postDelayed(connectNow, 500)
+        main.postDelayed(connectNow, 50)
     }
 
     private fun connect(view: VLCVideoLayout) {
         val p = player ?: return
         if (layout !== view || connectedView === view) return
         try {
+            try { p.detachViews() } catch (_: Exception) {}
             p.attachViews(view, null, true, true)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
             p.setVideoTrackEnabled(true)
