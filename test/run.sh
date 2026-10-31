@@ -20,8 +20,10 @@ for m in re.finditer(r'<node [^>]*>', x):
     if t == tx or t == cd:
         b=re.search(r'bounds=\"\[(\d+),(\d+)\]\[(\d+),(\d+)\]\"',n)
         if b:
-            x1,y1,x2,y2=map(int,b.groups()); print((x1+x2)//2,(y1+y2)//2); break
-" "$1")
+            x1,y1,x2,y2=map(int,b.groups()); hit=((x1+x2)//2,(y1+y2)//2)
+            if len(sys.argv) < 3: break
+if 'hit' in dir(): print(*hit)
+" "$@")
   if [ -n "$b" ]; then adb shell input tap $b; echo "tapped $1 at $b"; else echo "NOT FOUND: $1"; fi
 }
 
@@ -47,7 +49,7 @@ tap_text "Resume" ; tap_text "Play"; sleep 12; shot 06_player_playing
 adb shell input tap 600 300; sleep 1; shot 07_player_controls
 adb shell input keyevent KEYCODE_BACK; sleep 3; shot 08_mini_player
 tap_text "Play/pause"; sleep 4; shot 09_mini_playing
-tap_text "The Long Road"; sleep 5; shot 10_expanded
+tap_text "The Long Road" last; sleep 5; shot 10_expanded
 adb shell input keyevent KEYCODE_BACK; sleep 3
 tap_text "Stop"; sleep 3; shot 11_stopped
 
