@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="clientId">emulator-test</string>
+    <string name="token">TESTTOKEN</string>
+    <string name="server">{"name":"Oracle","clientIdentifier":"mock","accessToken":"TESTTOKEN","baseURL":"http://10.0.2.2:32400","allURIs":["http://10.0.2.2:32400"]}</string>
+</map>
