@@ -104,7 +104,7 @@ private fun metaLine(item: Item): String = listOfNotNull(
 private fun WatchedButton(item: Item) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = {
+    OutlinedButton(contentPadding = PaddingValues(horizontal = 12.dp), onClick = {
         if (busy) return@OutlinedButton
         busy = true
         scope.launch {
@@ -132,13 +132,14 @@ private fun PlayablePage(item: Item) {
         item {
             Column(Modifier.offset(y = (-56).dp).padding(horizontal = 16.dp)) {
                 val inProgress = item.progress != null
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { Playback.play(item) },
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = { Playback.play(item) }, contentPadding = PaddingValues(horizontal = 14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = LocalAccent.current, contentColor = Color.Black)) {
                         Icon(Icons.Filled.PlayArrow, null)
                         Text(if (inProgress) "Resume" else "Play", fontWeight = FontWeight.Bold)
                     }
-                    if (inProgress) OutlinedButton(onClick = { Playback.play(item, fromStart = true) }) { Text("From start") }
+                    if (inProgress) OutlinedButton(onClick = { Playback.play(item, fromStart = true) },
+                        contentPadding = PaddingValues(horizontal = 12.dp)) { Text("From start", maxLines = 1) }
                     WatchedButton(item)
                 }
                 item.progress?.let { p ->

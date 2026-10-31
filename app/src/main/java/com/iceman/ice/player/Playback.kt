@@ -97,7 +97,7 @@ object Playback {
         val p = player
         if (p != null) {
             try { p.detachViews() } catch (_: Exception) {}
-            p.attachViews(view, null, true, false)
+            p.attachViews(view, null, true, true)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
             // VLC only starts drawing on a new view when the video track restarts.
             val track = p.videoTrack
@@ -171,7 +171,7 @@ object Playback {
 
         val p = MediaPlayer(vlc())
         player = p
-        layout?.let { p.attachViews(it, null, true, false); p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT }
+        layout?.let { p.attachViews(it, null, true, true); p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT }
         p.setEventListener { e -> onEvent(e) }
         val m = Media(vlc(), Uri.parse(url))
         m.setHWDecoderEnabled(true, false)
