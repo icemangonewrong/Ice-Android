@@ -100,8 +100,26 @@ object Playback {
             try { p.setVideoTrackEnabled(false); p.detachViews() } catch (_: Exception) {}
         }
         layout = view
-        // Connect once the view has its size (VLC draws nothing into a view attached before layout).
-        view.post { connect(view) }
+        // Connect once the view has its final size (VLC draws nothing into a view attached before
+        // layout, and going full screen also rotates the screen).
+        view.postDelayed({ connect(view) }, 400)
+        view.addOnLayoutChangeListener { v, l, t, r, b, ol, ot, or_, ob ->
+            val resized = (r - l) != (or_ - ol) || (b - t) != (ob - ot)
+            if (resized && layout === v && player != null) {
+                v.removeCallbacks(reconnect)
+                reconnectView = view
+                v.postDelayed(reconnect, 300)
+            }
+        }
+    }
+
+    private var reconnectView: VLCVideoLayout? = null
+    private val reconnect = Runnable {
+        val v = reconnectView ?: return@Runnable
+        val p = player ?: return@Runnable
+        if (layout !== v) return@Runnable
+        try { p.setVideoTrackEnabled(false) } catch (_: Exception) {}
+        connect(v)
     }
 
     private fun connect(view: VLCVideoLayout) {

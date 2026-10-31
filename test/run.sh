@@ -49,7 +49,7 @@ tap_text "Resume" ; tap_text "Play"; sleep 12; shot 06_player_playing
 adb shell input tap 600 300; sleep 1; shot 07_player_controls
 adb shell input keyevent KEYCODE_BACK; sleep 3; shot 08_mini_player
 tap_text "Play/pause"; sleep 4; shot 09_mini_playing
-tap_text "The Long Road" last; sleep 5; shot 10_expanded
+tap_text "The Long Road" last; sleep 2; shot 10_expanded; sleep 4; shot 10b_expanded_later
 adb shell input keyevent KEYCODE_BACK; sleep 3
 tap_text "Stop"; sleep 3; shot 11_stopped
 
