@@ -94,18 +94,22 @@ object Playback {
     /** Shows the picture in this view (the full player or the mini player's thumbnail). */
     fun attach(view: VLCVideoLayout) {
         if (layout === view) return
-        val p = player
-        if (p != null) {
-            try { p.detachViews() } catch (_: Exception) {}
-            p.attachViews(view, null, true, true)
-            p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
-            // VLC only starts drawing on a new view when the video track restarts.
-            val track = p.videoTrack
-            if (track >= 0) main.postDelayed({
-                if (player === p && layout === view) { p.videoTrack = -1; p.videoTrack = track }
-            }, 150)
-        }
         layout = view
+        // Connect once the view has its size (VLC draws nothing into a view attached before layout).
+        view.post { connect(view) }
+    }
+
+    private fun connect(view: VLCVideoLayout) {
+        val p = player ?: return
+        if (layout !== view) return
+        try { p.detachViews() } catch (_: Exception) {}
+        p.attachViews(view, null, true, true)
+        p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+        // Restart the video track so VLC begins drawing on the new view right away.
+        val track = p.videoTrack
+        if (track >= 0) main.postDelayed({
+            if (player === p && layout === view) { p.videoTrack = -1; p.videoTrack = track }
+        }, 150)
     }
 
     fun detach(view: VLCVideoLayout) {
