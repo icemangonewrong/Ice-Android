@@ -16,7 +16,8 @@ import re,sys
 x=sys.stdin.read(); t=sys.argv[1]
 for m in re.finditer(r'<node [^>]*>', x):
     n=m.group(0)
-    if t in (re.search(r'text=\"([^\"]*)\"',n).group(1)+' '+re.search(r'content-desc=\"([^\"]*)\"',n).group(1)):
+    tx=re.search(r'text=\"([^\"]*)\"',n).group(1); cd=re.search(r'content-desc=\"([^\"]*)\"',n).group(1)
+    if t == tx or t == cd:
         b=re.search(r'bounds=\"\[(\d+),(\d+)\]\[(\d+),(\d+)\]\"',n)
         if b:
             x1,y1,x2,y2=map(int,b.groups()); print((x1+x2)//2,(y1+y2)//2); break

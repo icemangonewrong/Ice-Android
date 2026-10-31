@@ -61,7 +61,11 @@ fun IceTheme(content: @Composable () -> Unit) {
         surfaceContainerHigh = CardColor, surfaceContainerHighest = CardColor,
     )
     androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides accent) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(colorScheme = scheme) {
+            // Light text by default everywhere (screens draw on the dark background directly).
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides TextColor, content = content)
+        }
     }
 }
 
