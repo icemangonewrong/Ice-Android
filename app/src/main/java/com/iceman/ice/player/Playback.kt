@@ -92,48 +92,51 @@ object Playback {
     // -- video surface ------------------------------------------------------------
 
     /** Shows the picture in this view (the full player or the mini player's thumbnail). */
+    private var connectedView: VLCVideoLayout? = null
+    private val connectNow = Runnable { layout?.let { connect(it) } }
+
     fun attach(view: VLCVideoLayout) {
         if (layout === view) return
         val p = player
-        if (p != null && layout != null) {
+        if (p != null && connectedView != null) {
             // Let go of the old view cleanly before moving to the new one.
             try { p.setVideoTrackEnabled(false); p.detachViews() } catch (_: Exception) {}
         }
+        connectedView = null
         layout = view
-        // Connect once the view has its final size (VLC draws nothing into a view attached before
-        // layout, and going full screen also rotates the screen).
-        view.postDelayed({ connect(view) }, 400)
+        // Connect once the view has settled at its final size (going full screen also rotates the
+        // screen). Any later size change only needs VLC told about the new size.
         view.addOnLayoutChangeListener { v, l, t, r, b, ol, ot, or_, ob ->
-            val resized = (r - l) != (or_ - ol) || (b - t) != (ob - ot)
-            if (resized && layout === v && player != null) {
-                v.removeCallbacks(reconnect)
-                reconnectView = view
-                v.postDelayed(reconnect, 300)
+            if ((r - l) == (or_ - ol) && (b - t) == (ob - ot)) return@addOnLayoutChangeListener
+            if (layout !== v) return@addOnLayoutChangeListener
+            if (connectedView === v) {
+                try { player?.updateVideoSurfaces() } catch (_: Exception) {}
+            } else {
+                main.removeCallbacks(connectNow)
+                main.postDelayed(connectNow, 500)
             }
         }
-    }
-
-    private var reconnectView: VLCVideoLayout? = null
-    private val reconnect = Runnable {
-        val v = reconnectView ?: return@Runnable
-        val p = player ?: return@Runnable
-        if (layout !== v) return@Runnable
-        try { p.setVideoTrackEnabled(false) } catch (_: Exception) {}
-        connect(v)
+        main.removeCallbacks(connectNow)
+        main.postDelayed(connectNow, 500)
     }
 
     private fun connect(view: VLCVideoLayout) {
         val p = player ?: return
-        if (layout !== view) return
-        try { p.detachViews() } catch (_: Exception) {}
-        p.attachViews(view, null, true, true)
-        p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
-        p.setVideoTrackEnabled(true)
+        if (layout !== view || connectedView === view) return
+        try {
+            p.attachViews(view, null, true, true)
+            p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            p.setVideoTrackEnabled(true)
+            connectedView = view
+        } catch (_: Exception) {}
     }
 
     fun detach(view: VLCVideoLayout) {
         if (layout !== view) return
-        try { player?.setVideoTrackEnabled(false); player?.detachViews() } catch (_: Exception) {}
+        if (connectedView === view) {
+            try { player?.setVideoTrackEnabled(false); player?.detachViews() } catch (_: Exception) {}
+        }
+        connectedView = null
         layout = null
     }
 
@@ -194,7 +197,8 @@ object Playback {
 
         val p = MediaPlayer(vlc())
         player = p
-        layout?.let { p.attachViews(it, null, true, true); p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT }
+        connectedView = null
+        layout?.let { connect(it) }
         p.setEventListener { e -> onEvent(e) }
         val m = Media(vlc(), Uri.parse(url))
         m.setHWDecoderEnabled(true, false)
@@ -250,6 +254,7 @@ object Playback {
             p.release()
         }
         player = null
+        connectedView = null
         cache?.stop()
         cache = null
         val wasActive = active.value
