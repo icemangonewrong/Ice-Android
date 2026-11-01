@@ -42,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -68,7 +70,11 @@ fun IceRoot() {
             val density = LocalDensity.current
             if (showFull) Box(Modifier.fillMaxSize().background(Color.Black))
             if (active || showFull) {
-                val m = if (showFull) Modifier.fillMaxSize()
+                val z by Playback.zoom.collectAsState()
+                val px by Playback.panX.collectAsState()
+                val py by Playback.panY.collectAsState()
+                val m = if (showFull) Modifier.fillMaxSize().clipToBounds()
+                    .graphicsLayer { scaleX = z; scaleY = z; translationX = px; translationY = py }
                 else mini?.let { r ->
                     with(density) {
                         Modifier.offset { IntOffset(r.left.toInt(), r.top.toInt()) }

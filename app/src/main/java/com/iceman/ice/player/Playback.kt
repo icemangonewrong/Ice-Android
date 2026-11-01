@@ -59,6 +59,11 @@ object Playback {
     /** true = full-screen player, false = mini player (or nothing). */
     val showFull = MutableStateFlow(false)
     val switching = MutableStateFlow(false)
+    /** Picture zoom (full-screen player only) and how far it's moved when zoomed. */
+    val zoom = MutableStateFlow(1f)
+    val panX = MutableStateFlow(0f)
+    val panY = MutableStateFlow(0f)
+    private var zoomStep = 0
 
     private var markers: List<Marker> = emptyList()
     private var skipped = mutableSetOf<Marker>()
@@ -246,7 +251,7 @@ object Playback {
         skipMarker.value = null
         upNextSeconds.value = null
         offline.value = false
-        if (refresh) showFull.value = false
+        if (refresh) { showFull.value = false; resetZoom() }
         if (report && wasActive && it0 != null) {
             val c = AppState.client
             scope.launch {
@@ -313,6 +318,54 @@ object Playback {
     }
 
     fun minimize() { pause(); showFull.value = false }
+
+    // -- zoom -------------------------------------------------------------------------------
+
+    /** Width / height of the picture (falls back to 16:9 until VLC knows). */
+    private fun videoAspect(): Float {
+        val t = try { player?.currentVideoTrack } catch (_: Exception) { null }
+        if (t != null && t.width > 0 && t.height > 0) {
+            val sar = if (t.sarNum > 0 && t.sarDen > 0) t.sarNum.toFloat() / t.sarDen else 1f
+            return t.width * sar / t.height
+        }
+        return 16f / 9f
+    }
+
+    /** How much to enlarge the fitted picture so it fills a w×h screen with no black bars. */
+    private fun fillScale(w: Float, h: Float): Float {
+        if (w <= 0 || h <= 0) return 1f
+        val a = videoAspect()
+        val fitW = minOf(w, h * a)
+        val fitH = fitW / a
+        return maxOf(w / fitW, h / fitH)
+    }
+
+    /** Double tap in step mode: 1 of 3, 2 of 3, fill the screen, then back to normal. */
+    fun zoomStepTap(w: Float, h: Float) {
+        val fill = fillScale(w, h)
+        val levels = if (fill > 1.02f) listOf(1f, 1 + (fill - 1) / 3, 1 + 2 * (fill - 1) / 3, fill)
+                     else listOf(1f, 1.1f, 1.2f, 1.33f)
+        zoomStep = (zoomStep + 1) % 4
+        zoom.value = levels[zoomStep]
+        panX.value = 0f; panY.value = 0f
+        showToast(when (zoomStep) { 0 -> "Original size"; 3 -> "Zoom 3 of 3 · fill screen"; else -> "Zoom $zoomStep of 3" })
+    }
+
+    /** Pinch mode: scale by [factor] and move by [dx],[dy], kept inside the screen. */
+    fun pinch(factor: Float, dx: Float, dy: Float, w: Float, h: Float) {
+        val z = (zoom.value * factor).coerceIn(1f, 4f)
+        zoom.value = z
+        val maxX = (z - 1) * w / 2
+        val maxY = (z - 1) * h / 2
+        panX.value = (panX.value + dx).coerceIn(-maxX, maxX)
+        panY.value = (panY.value + dy).coerceIn(-maxY, maxY)
+    }
+
+    fun resetZoom(announce: Boolean = false) {
+        val was = zoom.value != 1f
+        zoomStep = 0; zoom.value = 1f; panX.value = 0f; panY.value = 0f
+        if (announce && was) showToast("Original size")
+    }
     fun expand() { if (active.value) showFull.value = true }
 
     fun skipCurrentMarker() {

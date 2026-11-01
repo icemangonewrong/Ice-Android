@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -103,6 +104,7 @@ fun PlayerScreen() {
     val upNext by Playback.upNextSeconds.collectAsState()
     val toast by Playback.toast.collectAsState()
     val tapToPause by AppState.tapToPause.collectAsState()
+    val zoomMode by AppState.zoomMode.collectAsState()
 
     var controls by remember { mutableStateOf(true) }
     var touched by remember { mutableIntStateOf(0) }
@@ -123,12 +125,25 @@ fun PlayerScreen() {
     Box(Modifier.fillMaxSize()) {
 
         // Tap the picture: pause/play if turned on in Settings, otherwise show/hide the controls.
-        Box(Modifier.fillMaxSize().pointerInput(tapToPause) {
-            detectTapGestures {
-                if (tapToPause) { Playback.togglePause(); poke() }
-                else if (controls) controls = false else poke()
+        // Double tap: zoom (3 steps, or back to normal in pinch mode). Pinch mode: pinch to zoom, drag to move.
+        Box(Modifier.fillMaxSize()
+            .pointerInput(tapToPause, zoomMode) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (zoomMode == "pinch") Playback.resetZoom(announce = true)
+                        else Playback.zoomStepTap(size.width.toFloat(), size.height.toFloat())
+                    },
+                    onTap = {
+                        if (tapToPause) { Playback.togglePause(); poke() }
+                        else if (controls) controls = false else poke()
+                    },
+                )
             }
-        })
+            .then(if (zoomMode == "pinch") Modifier.pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoomBy, _ ->
+                    Playback.pinch(zoomBy, pan.x, pan.y, size.width.toFloat(), size.height.toFloat())
+                }
+            } else Modifier))
 
         if ((buffering || switching || !active) && error == null) Box(Modifier.align(Alignment.Center)) { Spinner(56.dp) }
 

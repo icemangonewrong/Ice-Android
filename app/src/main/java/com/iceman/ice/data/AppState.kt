@@ -31,6 +31,9 @@ object AppState {
     val bufferMinutes: StateFlow<Int> = _bufferMinutes
     private val _tapToPause = MutableStateFlow(false)
     val tapToPause: StateFlow<Boolean> = _tapToPause
+    /** "steps" = double tap zooms in 3 steps then back; "pinch" = pinch to any size, drag to move. */
+    private val _zoomMode = MutableStateFlow("steps")
+    val zoomMode: StateFlow<String> = _zoomMode
     private val _audioDelays = MutableStateFlow<Map<String, Int>>(emptyMap())
     val audioDelays: StateFlow<Map<String, Int>> = _audioDelays
 
@@ -55,6 +58,7 @@ object AppState {
         _excluded.value = prefs.getStringSet("excluded", emptySet())!!.toSet()
         _bufferMinutes.value = prefs.getInt("bufferMinutes", 2).let { if (it in BUFFER_CHOICES) it else 2 }
         _tapToPause.value = prefs.getBoolean("tapToPause", false)
+        _zoomMode.value = prefs.getString("zoomMode", "steps") ?: "steps"
         _audioDelays.value = try {
             val o = JSONObject(prefs.getString("audioDelays", "{}")!!)
             o.keys().asSequence().associateWith { o.getInt(it) }
@@ -95,6 +99,7 @@ object AppState {
     val visibleSections get() = sections.filter { it.key !in _excluded.value }
 
     fun setBufferMinutes(m: Int) { _bufferMinutes.value = m; prefs.edit().putInt("bufferMinutes", m).apply() }
+    fun setZoomMode(m: String) { _zoomMode.value = m; prefs.edit().putString("zoomMode", m).apply() }
     fun setTapToPause(on: Boolean) { _tapToPause.value = on; prefs.edit().putBoolean("tapToPause", on).apply() }
 
     fun setAudioDelay(device: String, ms: Int) {
