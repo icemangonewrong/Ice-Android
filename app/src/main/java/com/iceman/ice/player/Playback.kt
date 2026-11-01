@@ -342,6 +342,8 @@ object Playback {
 
     /** Double tap in step mode: 1 of 3, 2 of 3, fill the screen, then back to normal. */
     fun zoomStepTap(w: Float, h: Float) {
+        // After a pinch to a custom size, a double tap goes back to normal.
+        if (zoomStep < 0) { resetZoom(announce = true); return }
         val fill = fillScale(w, h)
         val levels = if (fill > 1.02f) listOf(1f, 1 + (fill - 1) / 3, 1 + 2 * (fill - 1) / 3, fill)
                      else listOf(1f, 1.1f, 1.2f, 1.33f)
@@ -354,6 +356,7 @@ object Playback {
     /** Pinch mode: scale by [factor] and move by [dx],[dy], kept inside the screen. */
     fun pinch(factor: Float, dx: Float, dy: Float, w: Float, h: Float) {
         val z = (zoom.value * factor).coerceIn(1f, 4f)
+        if (z != zoom.value || dx != 0f || dy != 0f) zoomStep = if (z == 1f) 0 else -1
         zoom.value = z
         val maxX = (z - 1) * w / 2
         val maxY = (z - 1) * h / 2

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -104,7 +105,6 @@ fun PlayerScreen() {
     val upNext by Playback.upNextSeconds.collectAsState()
     val toast by Playback.toast.collectAsState()
     val tapToPause by AppState.tapToPause.collectAsState()
-    val zoomMode by AppState.zoomMode.collectAsState()
 
     var controls by remember { mutableStateOf(true) }
     var touched by remember { mutableIntStateOf(0) }
@@ -125,25 +125,22 @@ fun PlayerScreen() {
     Box(Modifier.fillMaxSize()) {
 
         // Tap the picture: pause/play if turned on in Settings, otherwise show/hide the controls.
-        // Double tap: zoom (3 steps, or back to normal in pinch mode). Pinch mode: pinch to zoom, drag to move.
+        // Double tap: zoom in 3 steps, 4th back to normal. Pinch: zoom to any size, drag to move.
         Box(Modifier.fillMaxSize()
-            .pointerInput(tapToPause, zoomMode) {
+            .pointerInput(tapToPause) {
                 detectTapGestures(
-                    onDoubleTap = {
-                        if (zoomMode == "pinch") Playback.resetZoom(announce = true)
-                        else Playback.zoomStepTap(size.width.toFloat(), size.height.toFloat())
-                    },
+                    onDoubleTap = { Playback.zoomStepTap(size.width.toFloat(), size.height.toFloat()) },
                     onTap = {
                         if (tapToPause) { Playback.togglePause(); poke() }
                         else if (controls) controls = false else poke()
                     },
                 )
             }
-            .then(if (zoomMode == "pinch") Modifier.pointerInput(Unit) {
+            .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoomBy, _ ->
                     Playback.pinch(zoomBy, pan.x, pan.y, size.width.toFloat(), size.height.toFloat())
                 }
-            } else Modifier))
+            })
 
         if ((buffering || switching || !active) && error == null) Box(Modifier.align(Alignment.Center)) { Spinner(56.dp) }
 
@@ -228,17 +225,32 @@ fun PlayerScreen() {
                             BarButton(Icons.Filled.GraphicEq, 26.dp) { showAudioDelay = true; poke() }
                         }
                     }
+                    // Close (stop and save the spot): set apart halfway between Next and the right-hand buttons.
+                    val close: @Composable () -> Unit = {
+                        BarButton(Icons.Filled.Close, 26.dp) { Playback.stop() }
+                    }
                     if (compact) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.weight(1f)) { info() }
                             right()
                         }
-                        Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) { transport() }
+                        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.weight(1f))
+                            transport()
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.weight(1f)); close(); Spacer(Modifier.weight(1f))
+                            }
+                        }
                     } else {
-                        Box(Modifier.fillMaxWidth().height(barHeight - 22.dp).padding(horizontal = 24.dp)) {
-                            Box(Modifier.align(Alignment.CenterStart)) { info() }
-                            Box(Modifier.align(Alignment.Center)) { transport() }
-                            Box(Modifier.align(Alignment.CenterEnd)) { right() }
+                        // Equal-width halves keep play centered; the X sits halfway between Next and the right buttons.
+                        Row(Modifier.fillMaxWidth().height(barHeight - 22.dp).padding(horizontal = 24.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { info() }
+                            transport()
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.weight(1f)); close(); Spacer(Modifier.weight(1f))
+                                right()
+                            }
                         }
                     }
                 }

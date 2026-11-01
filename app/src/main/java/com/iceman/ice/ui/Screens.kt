@@ -374,15 +374,7 @@ fun SettingsScreen() {
         SettingsHeader("Player")
         ToggleRow("Pause when the screen is tapped", tap, switchColors) { AppState.setTapToPause(it) }
         Text("When this is off, tapping the video just shows or hides the controls.", fontSize = 12.sp, color = Muted)
-
-        SettingsHeader("Zoom", "Fill the screen when the video has black bars.")
-        val zoomMode by AppState.zoomMode.collectAsState()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = zoomMode == "steps", onClick = { AppState.setZoomMode("steps") }, label = { Text("Double-tap steps") })
-            FilterChip(selected = zoomMode == "pinch", onClick = { AppState.setZoomMode("pinch") }, label = { Text("Pinch to zoom") })
-        }
-        Text(if (zoomMode == "steps") "Double tap zooms in a little, again a little more, a third time fills the screen, and a fourth goes back to normal."
-             else "Pinch to zoom to any size and drag with one finger to move the picture. Double tap goes back to normal.",
+        Text("Double tap the video to zoom in steps (a 4th double tap goes back to normal). Pinch to zoom further and drag to move it.",
             fontSize = 12.sp, color = Muted, modifier = Modifier.padding(top = 6.dp))
 
         SettingsHeader("Audio delay", "Set from the player's audio delay button. Each Bluetooth device keeps its own " +
