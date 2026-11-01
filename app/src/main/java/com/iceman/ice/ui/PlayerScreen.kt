@@ -119,8 +119,8 @@ fun PlayerScreen() {
     }
     fun poke() { controls = true; touched++ }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (active) VideoSurface(Modifier.fillMaxSize())
+    // The picture itself is drawn underneath by IceRoot (one video view for the whole app).
+    Box(Modifier.fillMaxSize()) {
 
         // Tap the picture: pause/play if turned on in Settings, otherwise show/hide the controls.
         Box(Modifier.fillMaxSize().pointerInput(tapToPause) {

@@ -93,31 +93,13 @@ object Playback {
 
     /** Shows the picture in this view (the full player or the mini player's thumbnail). */
     private var connectedView: VLCVideoLayout? = null
-    private val connectNow = Runnable { layout?.let { connect(it) } }
 
+    /** The one video view for the whole app (it moves/resizes between full screen and the mini player). */
     fun attach(view: VLCVideoLayout) {
         if (layout === view) return
-        val p = player
-        if (p != null && connectedView != null) {
-            // Let go of the old view cleanly before moving to the new one.
-            try { p.setVideoTrackEnabled(false); p.detachViews() } catch (_: Exception) {}
-        }
-        connectedView = null
         layout = view
-        // Connect once the view has settled at its final size (going full screen also rotates the
-        // screen). Any later size change only needs VLC told about the new size.
-        view.addOnLayoutChangeListener { v, l, t, r, b, ol, ot, or_, ob ->
-            if ((r - l) == (or_ - ol) && (b - t) == (ob - ot)) return@addOnLayoutChangeListener
-            if (layout !== v) return@addOnLayoutChangeListener
-            if (connectedView === v) {
-                try { player?.updateVideoSurfaces() } catch (_: Exception) {}
-            } else {
-                main.removeCallbacks(connectNow)
-                main.postDelayed(connectNow, 50)
-            }
-        }
-        main.removeCallbacks(connectNow)
-        main.postDelayed(connectNow, 50)
+        connectedView = null
+        main.post { connect(view) }
     }
 
     private fun connect(view: VLCVideoLayout) {
@@ -127,16 +109,13 @@ object Playback {
             try { p.detachViews() } catch (_: Exception) {}
             p.attachViews(view, null, true, true)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
-            p.setVideoTrackEnabled(true)
             connectedView = view
         } catch (_: Exception) {}
     }
 
     fun detach(view: VLCVideoLayout) {
         if (layout !== view) return
-        if (connectedView === view) {
-            try { player?.setVideoTrackEnabled(false); player?.detachViews() } catch (_: Exception) {}
-        }
+        if (connectedView === view) try { player?.detachViews() } catch (_: Exception) {}
         connectedView = null
         layout = null
     }

@@ -41,6 +41,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.unit.sp
 import com.iceman.ice.data.AppState
 import com.iceman.ice.player.Playback
@@ -56,6 +61,21 @@ fun IceRoot() {
                 !signedIn -> Box(Modifier.systemBarsPadding()) { SignInScreen() }
                 server == null -> Box(Modifier.systemBarsPadding()) { ServerPickerScreen() }
                 else -> MainTabs()
+            }
+            // One video view for the whole app: full screen, or shrunk into the mini player's spot.
+            val active by Playback.active.collectAsState()
+            val mini by MiniSpot.rect.collectAsState()
+            val density = LocalDensity.current
+            if (showFull) Box(Modifier.fillMaxSize().background(Color.Black))
+            if (active || showFull) {
+                val m = if (showFull) Modifier.fillMaxSize()
+                else mini?.let { r ->
+                    with(density) {
+                        Modifier.offset { IntOffset(r.left.toInt(), r.top.toInt()) }
+                            .size(r.width.toDp(), r.height.toDp()).clip(RoundedCornerShape(6.dp))
+                    }
+                } ?: Modifier.size(1.dp)
+                VideoSurface(m)
             }
             if (showFull) PlayerScreen()
         }
@@ -99,8 +119,12 @@ private fun MainTabs() {
 }
 
 /** Paused video along the bottom after pressing the down arrow / back. Tap it to open the full player. */
+/** Where the mini player's picture goes on screen. */
+object MiniSpot { val rect = kotlinx.coroutines.flow.MutableStateFlow<androidx.compose.ui.geometry.Rect?>(null) }
+
 @Composable
 private fun MiniPlayer() {
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { MiniSpot.rect.value = null } }
     val item by Playback.item.collectAsState()
     val playing by Playback.playing.collectAsState()
     val pos by Playback.positionMs.collectAsState()
@@ -108,9 +132,9 @@ private fun MiniPlayer() {
     Column(Modifier.fillMaxWidth().padding(8.dp, 6.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1C1C22))) {
         Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable { Playback.expand() }, verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(88.dp, 50.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)) {
-                    VideoSurface(Modifier.fillMaxSize())
-                }
+                // The video view itself is placed over this spot by IceRoot.
+                Box(Modifier.size(88.dp, 50.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)
+                    .onGloballyPositioned { MiniSpot.rect.value = it.boundsInRoot() })
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(item?.displayTitle ?: "", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1,
