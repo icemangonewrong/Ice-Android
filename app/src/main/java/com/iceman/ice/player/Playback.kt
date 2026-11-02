@@ -35,6 +35,46 @@ object Playback {
     private lateinit var app: Context
     private var libVLC: LibVLC? = null
     private var player: MediaPlayer? = null
+
+    // -- Android Auto: the car screen's drawing surface (video goes there while connected) --------
+    /** True while Ice is open on an Android Auto screen. */
+    val carConnected = MutableStateFlow(false)
+    private var carSurface: android.view.Surface? = null
+    private var carW = 0
+    private var carH = 0
+
+    fun attachCarSurface(surface: android.view.Surface, w: Int, h: Int) {
+        carSurface = surface; carW = w; carH = h
+        connectCar()
+    }
+
+    fun resizeCarSurface(w: Int, h: Int) {
+        carW = w; carH = h
+        try { player?.vlcVout?.setWindowSize(w, h) } catch (_: Exception) {}
+    }
+
+    fun detachCarSurface() {
+        val p = player
+        if (p != null && carSurface != null) try { p.vlcVout.detachViews() } catch (_: Exception) {}
+        carSurface = null
+        // Back to the phone's own video view, if it has one.
+        layout?.let { connectedView = null; connect(it) }
+    }
+
+    private fun connectCar() {
+        val p = player ?: return
+        val s = carSurface ?: return
+        try {
+            try { p.detachViews() } catch (_: Exception) {}
+            connectedView = null
+            val vout = p.vlcVout
+            if (vout.areViewsAttached()) vout.detachViews()
+            vout.setVideoSurface(s, null)
+            vout.setWindowSize(carW, carH)
+            vout.attachViews()
+            p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+        } catch (_: Exception) {}
+    }
     private var cache: StreamCache? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var ticker: Job? = null
@@ -88,6 +128,54 @@ object Playback {
             override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = audioRouteChanged()
         }, main)
         audioDevice.value = currentOutputName()
+        setupMediaSession()
+    }
+
+    // -- media session: steering-wheel / headphone / car buttons ------------------------------------
+    private var session: android.support.v4.media.session.MediaSessionCompat? = null
+
+    private fun setupMediaSession() {
+        val ms = android.support.v4.media.session.MediaSessionCompat(app, "Ice")
+        ms.setCallback(object : android.support.v4.media.session.MediaSessionCompat.Callback() {
+            override fun onPlay() { if (!wantsPlay) togglePause() }
+            override fun onPause() { pause() }
+            override fun onSkipToNext() { next() }
+            override fun onSkipToPrevious() { previous() }
+            override fun onFastForward() { skip(10) }
+            override fun onRewind() { skip(-10) }
+            override fun onSeekTo(pos: Long) { seekTo(pos) }
+            override fun onStop() { stop() }
+        })
+        session = ms
+        scope.launch {
+            kotlinx.coroutines.flow.combine(active, playing, item) { a, p, i -> Triple(a, p, i) }.collect { (a, p, i) ->
+                val S = android.support.v4.media.session.PlaybackStateCompat::class.java
+                val state = android.support.v4.media.session.PlaybackStateCompat.Builder()
+                    .setActions(android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_PAUSE or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_FAST_FORWARD or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_REWIND or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_SEEK_TO or
+                        android.support.v4.media.session.PlaybackStateCompat.ACTION_STOP)
+                    .setState(when {
+                        !a -> android.support.v4.media.session.PlaybackStateCompat.STATE_STOPPED
+                        p -> android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING
+                        else -> android.support.v4.media.session.PlaybackStateCompat.STATE_PAUSED
+                    }, positionMs.value, 1f)
+                    .build()
+                ms.setPlaybackState(state)
+                if (i != null) ms.setMetadata(android.support.v4.media.MediaMetadataCompat.Builder()
+                    .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE, i.displayTitle)
+                    .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ARTIST, i.displaySubtitle ?: "")
+                    .putLong(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_DURATION, durationMs.value)
+                    .build())
+                ms.isActive = a
+                @Suppress("UNUSED_VARIABLE") val unused = S
+            }
+        }
     }
 
     private fun vlc(): LibVLC = libVLC ?: LibVLC(app, arrayListOf(
@@ -109,6 +197,7 @@ object Playback {
 
     private fun connect(view: VLCVideoLayout) {
         val p = player ?: return
+        if (carSurface != null) return   // the car screen has the video while connected
         if (layout !== view || connectedView === view) return
         try {
             try { p.detachViews() } catch (_: Exception) {}
@@ -129,7 +218,8 @@ object Playback {
 
     fun play(target: Item, fromStart: Boolean = false) {
         error.value = null
-        showFull.value = true
+        // In the car the video goes to the car screen; the phone just shows the mini player.
+        if (!carConnected.value) showFull.value = true
         scope.launch {
             val c = AppState.client
             var t = target
@@ -183,7 +273,7 @@ object Playback {
         val p = MediaPlayer(vlc())
         player = p
         connectedView = null
-        layout?.let { connect(it) }
+        if (carSurface != null) connectCar() else layout?.let { connect(it) }
         p.setEventListener { e -> onEvent(e) }
         val m = Media(vlc(), Uri.parse(url))
         m.setHWDecoderEnabled(true, false)

@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         // Leaving the app: pause (no background video).
-        if (!isChangingConfigurations) Playback.pause()
+        // (Keeps playing in the car, where the phone screen is usually off.)
+        if (!isChangingConfigurations && !Playback.carConnected.value) Playback.pause()
     }
 }

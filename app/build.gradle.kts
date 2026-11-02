@@ -59,4 +59,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.videolan.android:libvlc-all:3.6.0")
+    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.media:media:1.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }
