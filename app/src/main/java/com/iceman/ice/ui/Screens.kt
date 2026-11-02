@@ -390,6 +390,18 @@ fun SettingsScreen() {
 
         SettingsHeader("Account")
         TextButton(onClick = { AppState.signOut() }) { Text("Sign out", color = Color(0xFFFF6B6B)) }
+
+        SettingsHeader("About")
+        val ctx = LocalContext.current
+        val build = remember {
+            try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName?.substringAfterLast('.') ?: "?" }
+            catch (_: Exception) { "?" }
+        }
+        Text("Ice for Android  ·  build $build")
+        Text("The newest build number is shown on the download page.", fontSize = 12.sp, color = Muted)
+        OutlinedButton(onClick = {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/icemangonewrong/Ice-Android/releases/latest")))
+        }, modifier = Modifier.padding(top = 8.dp)) { Text("Check for updates") }
         Spacer(Modifier.height(40.dp))
     }
 }
