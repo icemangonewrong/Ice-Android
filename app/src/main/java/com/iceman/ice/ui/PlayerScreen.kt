@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -111,6 +114,7 @@ fun PlayerScreen() {
     var scrubbing by remember { mutableStateOf<Long?>(null) }
     var showAudioDelay by remember { mutableStateOf(false) }
     var showSubTiming by remember { mutableStateOf(false) }
+    var showSubSearch by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
     BackHandler { Playback.minimize() }
@@ -220,7 +224,8 @@ fun PlayerScreen() {
                             Box {
                                 BarButton(Icons.Filled.ClosedCaption, 26.dp) { menuOpen = true; poke() }
                                 TracksMenu(menuOpen, onDismiss = { menuOpen = false; poke() },
-                                    onSubtitleTiming = { menuOpen = false; showSubTiming = true })
+                                    onSubtitleTiming = { menuOpen = false; showSubTiming = true },
+                                    onSubtitleSearch = { menuOpen = false; showSubSearch = true })
                             }
                             BarButton(Icons.Filled.GraphicEq, 26.dp) { showAudioDelay = true; poke() }
                         }
@@ -278,6 +283,12 @@ fun PlayerScreen() {
         AdjustDialog("Subtitle timing", "For this video.", Playback.subtitleDelayMs.value, 100, "◀ Earlier", "Later ▶",
             describe = { if (it < 0) "Subtitles show earlier" else if (it > 0) "Subtitles show later" else "No adjustment" },
             onChange = { Playback.setSubtitleDelay(it) }, onDismiss = { showSubTiming = false; poke() })
+    }
+    if (showSubSearch) {
+        val key = Playback.item.value?.key
+        if (key != null) SubtitleSearchDialog(key, onPick = { Playback.downloadSubtitle(it) },
+            onDismiss = { showSubSearch = false; poke() })
+        else showSubSearch = false
     }
 }
 
@@ -343,7 +354,7 @@ private fun ScrubBar(pos: Long, dur: Long, bufferedSec: Double, onDrag: (Long) -
 }
 
 @Composable
-private fun TracksMenu(open: Boolean, onDismiss: () -> Unit, onSubtitleTiming: () -> Unit) {
+private fun TracksMenu(open: Boolean, onDismiss: () -> Unit, onSubtitleTiming: () -> Unit, onSubtitleSearch: () -> Unit) {
     DropdownMenu(expanded = open, onDismissRequest = onDismiss) {
         val audio = Playback.audioTracks()
         val subs = Playback.subtitleTracks()
@@ -365,9 +376,74 @@ private fun TracksMenu(open: Boolean, onDismiss: () -> Unit, onSubtitleTiming: (
                 onClick = { Playback.selectSubtitle(t.id); onDismiss() })
         }
         HorizontalDivider()
+        DropdownMenuItem(text = { Text("Search for subtitles…") }, onClick = onSubtitleSearch)
         val d = Playback.subtitleDelayMs.value
         DropdownMenuItem(text = { Text("Subtitle timing…" + if (d != 0) "  (${if (d > 0) "+" else ""}$d ms)" else "") },
             onClick = onSubtitleTiming)
+    }
+}
+
+private val SUB_LANGS = listOf("English" to "en", "Spanish" to "es", "French" to "fr", "German" to "de", "Italian" to "it",
+    "Portuguese" to "pt", "Dutch" to "nl", "Swedish" to "sv", "Norwegian" to "no", "Danish" to "da", "Finnish" to "fi",
+    "Polish" to "pl", "Russian" to "ru", "Ukrainian" to "uk", "Czech" to "cs", "Hungarian" to "hu", "Romanian" to "ro",
+    "Greek" to "el", "Turkish" to "tr", "Arabic" to "ar", "Hebrew" to "he", "Hindi" to "hi", "Japanese" to "ja",
+    "Korean" to "ko", "Chinese" to "zh", "Vietnamese" to "vi", "Thai" to "th", "Indonesian" to "id")
+
+/** Find subtitles online through the Plex server (it searches OpenSubtitles, like Plex's own apps). */
+@Composable
+private fun SubtitleSearchDialog(itemKey: String, onPick: (com.iceman.ice.data.OnlineSub) -> Unit, onDismiss: () -> Unit) {
+    var lang by remember { mutableStateOf(Playback.subtitleSearchLanguage) }
+    var sdh by remember { mutableStateOf(false) }
+    var langOpen by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<com.iceman.ice.data.OnlineSub>>(emptyList()) }
+    var status by remember { mutableStateOf("Searching…") }
+    LaunchedEffect(lang, sdh) {
+        results = emptyList()
+        status = "Searching…"
+        try {
+            val r = AppState.client.searchSubtitles(itemKey, lang, sdh)
+            results = r
+            status = if (r.isEmpty()) "Nothing found in that language." else "${r.size} found · tap one to use it."
+        } catch (e: Exception) {
+            status = "Couldn't search: ${e.message}"
+        }
+    }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.widthIn(max = 520.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1D1D23)).padding(20.dp)) {
+            Text("Search for subtitles", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
+            Text("Your Plex server looks them up online (OpenSubtitles) and saves the one you pick with the video.",
+                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    OutlinedButton(onClick = { langOpen = true }) {
+                        Text((SUB_LANGS.firstOrNull { it.second == lang }?.first ?: lang) + "  ▾", color = Color.White)
+                    }
+                    DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
+                        SUB_LANGS.forEach { (name, code) ->
+                            DropdownMenuItem(text = { Text((if (code == lang) "✓  " else "     ") + name) },
+                                onClick = { langOpen = false; lang = code; Playback.subtitleSearchLanguage = code })
+                        }
+                    }
+                }
+                OutlinedButton(onClick = { sdh = !sdh }) {
+                    Text((if (sdh) "✓ " else "") + "SDH", color = if (sdh) LocalAccent.current else Color.White)
+                }
+            }
+            Text(status, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+            LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                items(results) { r ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        .clickable { onPick(r); onDismiss() }.padding(vertical = 9.dp, horizontal = 6.dp)) {
+                        Text((if (r.perfect) "★ " else "") + r.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (r.details.isNotEmpty()) Text(r.details, color = Muted, fontSize = 12.sp)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                OutlinedButton(onClick = onDismiss) { Text("Close", color = Color.White) }
+            }
+        }
     }
 }
 

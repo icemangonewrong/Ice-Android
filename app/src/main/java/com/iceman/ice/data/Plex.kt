@@ -38,6 +38,14 @@ data class Marker(val type: String, val start: Double, val end: Double) {
 
 data class ExternalSub(val key: String, val title: String, val lang: String)
 
+/** A subtitle the Plex server found online (OpenSubtitles etc.). */
+data class OnlineSub(val key: String, val title: String, val provider: String, val format: String,
+                     val score: Double?, val perfect: Boolean, val hi: Boolean, val forced: Boolean) {
+    val details: String get() = listOfNotNull(provider.ifEmpty { null }, format.ifEmpty { null }, if (hi) "SDH" else null,
+        if (forced) "Forced" else null, score?.let { "match ${if (it % 1.0 == 0.0) it.toInt().toString() else it.toString()}" })
+        .joinToString("  ·  ")
+}
+
 class Item(val j: JSONObject) {
     val key: String get() = j.optString("ratingKey")
     val type: String get() = j.optString("type")
@@ -374,6 +382,37 @@ class PlexClient(val clientId: String) {
         val pk = item.partKey ?: return null
         return buildUrl(s.baseURL, pk, mapOf("X-Plex-Token" to s.accessToken,
             "X-Plex-Client-Identifier" to clientId, "X-Plex-Product" to PRODUCT))
+    }
+
+    // -- online subtitles (the same search Plex's own apps use) -------------
+
+    private fun JSONObject.flag(k: String): Boolean = when (val v = opt(k)) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> v == "1" || v.equals("true", true)
+        else -> false
+    }
+
+    /** Subtitles the server finds online for this video, best first. */
+    suspend fun searchSubtitles(key: String, language: String, hearingImpaired: Boolean): List<OnlineSub> = withContext(Dispatchers.IO) {
+        val s = server ?: throw PlexException("No Plex server selected.")
+        val o = JSONObject(http(buildUrl(s.baseURL, "/library/metadata/$key/subtitles",
+            mapOf("language" to language, "hearingImpaired" to if (hearingImpaired) "1" else "0", "forced" to "0")),
+            tok = s.accessToken, timeoutMs = 40000))
+        (o.optJSONObject("MediaContainer")?.objs("Stream") ?: emptyList()).mapNotNull {
+            val k = it.str("key") ?: return@mapNotNull null
+            OnlineSub(k, it.str("title") ?: it.str("displayTitle") ?: "Subtitle", it.str("providerTitle") ?: "",
+                (it.str("format") ?: it.str("codec") ?: "").uppercase(), it.dbl("score"),
+                it.flag("perfectMatch"), it.flag("hearingImpaired"), it.flag("forced"))
+        }.sortedWith(compareBy<OnlineSub> { !it.perfect }.thenByDescending { it.score ?: 0.0 })
+    }
+
+    /** Tells the server to fetch that subtitle and keep it with the video (it shows up a moment later). */
+    suspend fun downloadSubtitle(key: String, streamKey: String) = withContext(Dispatchers.IO) {
+        val s = server ?: throw PlexException("No Plex server selected.")
+        http(buildUrl(s.baseURL, "/library/metadata/$key/subtitles", mapOf("key" to streamKey)), method = "PUT",
+            tok = s.accessToken, timeoutMs = 40000)
+        Unit
     }
 
     fun streamUrl(key: String): String? {

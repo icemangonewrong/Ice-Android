@@ -614,6 +614,41 @@ object Playback {
         }
     }
 
+    // -- online subtitles --------------------------------------------------------------
+
+    var subtitleSearchLanguage: String
+        get() = app.getSharedPreferences("ice", Context.MODE_PRIVATE).getString("subSearchLang", null)
+            ?: (java.util.Locale.getDefault().language.takeIf { it.length == 2 } ?: "en")
+        set(v) { app.getSharedPreferences("ice", Context.MODE_PRIVATE).edit().putString("subSearchLang", v).apply() }
+
+    /** Has the server download that subtitle, then switches to it once it shows up with the video. */
+    fun downloadSubtitle(sub: com.iceman.ice.data.OnlineSub) {
+        val it0 = item.value ?: return
+        val key = it0.key
+        val c = AppState.client
+        showToast("Downloading subtitles…")
+        scope.launch {
+            try {
+                val before = (try { c.details(key) } catch (_: Exception) { null })?.externalSubtitles?.map { it.key }?.toSet() ?: emptySet()
+                c.downloadSubtitle(key, sub.key)
+                var found: com.iceman.ice.data.ExternalSub? = null
+                for (i in 0 until 20) {
+                    delay(1500)
+                    val subs = (try { c.details(key) } catch (_: Exception) { null })?.externalSubtitles ?: continue
+                    found = subs.lastOrNull { it.key !in before }
+                    if (found != null) break
+                }
+                if (item.value?.key != key) return@launch
+                val url = found?.let { c.streamUrl(it.key) }
+                if (url == null) { showToast("The server didn't get those subtitles. Try another one."); return@launch }
+                player?.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(url), true)
+                showToast("Subtitles: ${sub.title}")
+            } catch (e: Exception) {
+                if (item.value?.key == key) showToast("Couldn't download: ${e.message}")
+            }
+        }
+    }
+
     fun showToast(text: String) {
         toast.value = text
         scope.launch { delay(3500); if (toast.value == text) toast.value = null }
