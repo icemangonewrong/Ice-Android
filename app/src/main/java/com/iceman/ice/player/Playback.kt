@@ -78,6 +78,9 @@ object Playback {
     private var cache: StreamCache? = null
     // Subtitles start off (like Plex), whatever the file marks as default; Plex's choice or yours wins.
     private var pickedSub: Int? = null
+    // English audio first, whatever the file marks as default (unless you pick a track yourself).
+    private var pickedAudio = false
+    private var audioCheckUntil = 0L
     private var plexEmbeddedSub: Int? = null
     private var plexExternalSubUrl: String? = null
     /** The next episode's first ~20 seconds, fetched near the end of this one so it starts at once. */
@@ -261,6 +264,8 @@ object Playback {
         upNextLeftMs = UP_NEXT_MS
         subtitleDelayMs.value = 0
         pickedSub = null
+        pickedAudio = false
+        audioCheckUntil = System.currentTimeMillis() + 25_000
         plexEmbeddedSub = null
         plexExternalSubUrl = null
         durationMs.value = t.durationMs
@@ -310,6 +315,7 @@ object Playback {
         val m = Media(vlc(), Uri.parse(url))
         m.setHWDecoderEnabled(true, false)
         m.addOption(":sub-language=none")   // don't auto-pick a subtitle the file marks as default
+        m.addOption(":audio-language=en,eng,English")   // English audio first (falls back to the file's default)
         m.addOption(":network-caching=1500")
         if (resume > 1000) m.addOption(":start-time=${resume / 1000.0}")
         p.media = m
@@ -529,7 +535,19 @@ object Playback {
     fun subtitleTracks(): List<Track> = player?.spuTracks?.map { Track(it.id, it.name ?: "Track ${it.id}") }?.filter { it.id >= 0 } ?: emptyList()
     fun currentAudioTrack(): Int = player?.audioTrack ?: -1
     fun currentSubtitleTrack(): Int = player?.spuTrack ?: -1
-    fun selectAudio(id: Int) { player?.setAudioTrack(id) }
+    fun selectAudio(id: Int) { pickedAudio = true; player?.setAudioTrack(id) }
+
+    /** Backup for audio-language: for the first seconds, switch to an English track if the file started
+     *  on another language and has one (unless you picked a track yourself). */
+    private fun preferEnglishAudio() {
+        if (pickedAudio || System.currentTimeMillis() > audioCheckUntil) return
+        val p = player ?: return
+        val tracks = p.audioTracks ?: return
+        val cur = tracks.firstOrNull { it.id == p.audioTrack } ?: return
+        if ((cur.name ?: "").contains("english", true)) return
+        val en = tracks.firstOrNull { it.id >= 0 && (it.name ?: "").contains("english", true) && !(it.name ?: "").contains("commentary", true) }
+        if (en != null) p.setAudioTrack(en.id)
+    }
     fun selectSubtitle(id: Int) { pickedSub = id; player?.setSpuTrack(id) }
 
     /** Subtitles off unless you picked one here or in Plex (files can mark a track as default; Plex ignores that). */
@@ -638,7 +656,7 @@ object Playback {
         }
         updateMarkers()
         // VLC can switch on a default-marked subtitle a moment after starting; keep it to our choice.
-        if (hasPlayed) applySubChoice()
+        if (hasPlayed) { applySubChoice(); preferEnglishAudio() }
         preloadNext()
         if (System.currentTimeMillis() - lastReport > 10_000) reportNow()
     }
