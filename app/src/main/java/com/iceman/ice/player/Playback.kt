@@ -76,6 +76,10 @@ object Playback {
         } catch (_: Exception) {}
     }
     private var cache: StreamCache? = null
+    // Subtitles start off (like Plex), whatever the file marks as default; Plex's choice or yours wins.
+    private var pickedSub: Int? = null
+    private var plexEmbeddedSub: Int? = null
+    private var plexExternalSubUrl: String? = null
     /** The next episode's first ~20 seconds, fetched near the end of this one so it starts at once. */
     private class Preload(val key: String, val cache: StreamCache, val url: String, val item: Item, val after: Item?)
     private var preload: Preload? = null
@@ -253,6 +257,9 @@ object Playback {
         upNextDeadline = 0
         upNextLeftMs = UP_NEXT_MS
         subtitleDelayMs.value = 0
+        pickedSub = null
+        plexEmbeddedSub = null
+        plexExternalSubUrl = null
         durationMs.value = t.durationMs
         var resume = if (fromStart) 0L else t.offsetMs
         if (t.durationMs > 0 && resume > t.durationMs - 120_000) resume = 0
@@ -315,6 +322,9 @@ object Playback {
             if (full != null) {
                 markers = full.markers
                 pendingSubs = full.externalSubtitles.mapNotNull { c.streamUrl(it.key) }
+                plexEmbeddedSub = full.selectedEmbeddedSubtitle
+                plexExternalSubUrl = full.externalSubtitles.firstOrNull { it.selected }?.let { c.streamUrl(it.key) }
+                if (hasPlayed) applySubChoice()
                 addPendingSubs()
             }
             nextItem.value = nxt
@@ -326,7 +336,11 @@ object Playback {
         if (!hasPlayed || pendingSubs.isEmpty()) return
         val subs = pendingSubs
         pendingSubs = emptyList()
-        for (u in subs) try { p.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(u), false) } catch (_: Exception) {}
+        for (u in subs) try {
+            val chosen = pickedSub == null && u == plexExternalSubUrl
+            p.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(u), chosen)
+            if (chosen) rememberCurrentSubLater()
+        } catch (_: Exception) {}
     }
 
     /** Stops playback and saves the position to Plex. */
@@ -503,7 +517,24 @@ object Playback {
     fun currentAudioTrack(): Int = player?.audioTrack ?: -1
     fun currentSubtitleTrack(): Int = player?.spuTrack ?: -1
     fun selectAudio(id: Int) { player?.setAudioTrack(id) }
-    fun selectSubtitle(id: Int) { player?.setSpuTrack(id) }
+    fun selectSubtitle(id: Int) { pickedSub = id; player?.setSpuTrack(id) }
+
+    /** Subtitles off unless you picked one here or in Plex (files can mark a track as default; Plex ignores that). */
+    private fun applySubChoice() {
+        val p = player ?: return
+        val ids = p.spuTracks?.map { it.id }?.filter { it >= 0 } ?: emptyList()
+        val want = pickedSub ?: plexEmbeddedSub?.let { n -> ids.getOrNull(n - 1) }
+            ?: if (plexExternalSubUrl != null) return else -1
+        if (p.spuTrack != want) p.setSpuTrack(want)
+    }
+
+    private fun rememberCurrentSubLater() {
+        scope.launch {
+            delay(1500)
+            val id = player?.spuTrack ?: return@launch
+            if (id >= 0) pickedSub = id
+        }
+    }
 
     fun setSubtitleDelay(ms: Int) {
         subtitleDelayMs.value = ms
@@ -553,7 +584,7 @@ object Playback {
 
     private fun onEvent(e: MediaPlayer.Event) {
         when (e.type) {
-            MediaPlayer.Event.Playing -> { playing.value = true; buffering.value = false }
+            MediaPlayer.Event.Playing -> { playing.value = true; buffering.value = false; applySubChoice() }
             MediaPlayer.Event.Paused -> playing.value = false
             MediaPlayer.Event.Buffering -> buffering.value = e.buffering < 100f
             MediaPlayer.Event.EndReached -> finished()
@@ -572,7 +603,12 @@ object Playback {
         if (len > 0) durationMs.value = len
         val isPlaying = p.isPlaying
         playing.value = isPlaying || (wantsPlay && buffering.value)
-        if (isPlaying && t > 0 && !hasPlayed) { hasPlayed = true; addPendingSubs() }
+        if (isPlaying && t > 0 && !hasPlayed) {
+            hasPlayed = true
+            applySubChoice()
+            scope.launch { delay(1000); applySubChoice() }
+            addPendingSubs()
+        }
         cache?.snapshot()?.let { s ->
             bufferedSec.value = s.bufferedBytes / s.bytesPerSecond
             offline.value = s.offline
@@ -701,6 +737,7 @@ object Playback {
                 val url = found?.let { c.streamUrl(it.key) }
                 if (url == null) { showToast("The server didn't get those subtitles. Try another one."); return@launch }
                 player?.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(url), true)
+                rememberCurrentSubLater()
                 showToast("Subtitles: ${sub.title}")
             } catch (e: Exception) {
                 if (item.value?.key == key) showToast("Couldn't download: ${e.message}")

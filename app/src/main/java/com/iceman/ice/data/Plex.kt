@@ -36,7 +36,7 @@ data class Marker(val type: String, val start: Double, val end: Double) {
     val isCredits get() = type == "credits"
 }
 
-data class ExternalSub(val key: String, val title: String, val lang: String)
+data class ExternalSub(val key: String, val title: String, val lang: String, val selected: Boolean = false)
 
 /** A subtitle the Plex server found online (OpenSubtitles etc.). */
 data class OnlineSub(val key: String, val title: String, val provider: String, val format: String,
@@ -142,7 +142,20 @@ class Item(val j: JSONObject) {
     val externalSubtitles: List<ExternalSub>
         get() = (part?.objs("Stream") ?: emptyList()).filter { it.int("streamType") == 3 && it.str("key") != null }
             .map { ExternalSub(it.str("key")!!, it.str("displayTitle") ?: it.str("title") ?: "Subtitles",
-                               it.str("languageCode") ?: "") }
+                               it.str("languageCode") ?: "", it.optBoolean("selected", false)) }
+
+    /** If you picked a subtitle inside the file in Plex: its position among the file's subtitle tracks (1 = first). */
+    val selectedEmbeddedSubtitle: Int?
+        get() {
+            var n = 0
+            for (s in part?.objs("Stream") ?: emptyList()) {
+                if (s.int("streamType") == 3 && s.str("key") == null) {
+                    n++
+                    if (s.optBoolean("selected", false)) return n
+                }
+            }
+            return null
+        }
 
     override fun equals(other: Any?) = other is Item && other.key == key
     override fun hashCode() = key.hashCode()
