@@ -85,6 +85,9 @@ object Playback {
     private var preload: Preload? = null
     private var preloadPending: String? = null
     private var preloadedExtras: Preload? = null
+    /** The video whose info page is open, ~10 s from where Play would start. */
+    private var warmed: Preload? = null
+    private var warmedAt = 0.0
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var ticker: Job? = null
     private val main = Handler(Looper.getMainLooper())
@@ -273,14 +276,22 @@ object Playback {
 
         // Route through the on-phone cache when we know the file size (almost always).
         var url = remote
-        val pre = preload
+        var pre = preload
         preload = null
+        var fromInfoPage = false
+        val w = warmed
+        warmed = null
+        if (pre?.key != t.key && w != null && w.key == t.key) {
+            pre?.cache?.stop()
+            pre = w
+            fromInfoPage = true
+        } else w?.cache?.stop()
         if (pre != null && pre.key == t.key) {
             // Already preloaded: start from what's on the phone.
             pre.cache.promote()
             cache = pre.cache
             url = pre.url
-            preloadedExtras = pre
+            if (!fromInfoPage) preloadedExtras = pre
         } else pre?.cache?.stop()
         if (cache == null && t.fileSize > 0 && t.durationMs > 0) {
             val sc = StreamCache(remote, t.fileSize, t.durationMs / 1000.0,
@@ -377,6 +388,8 @@ object Playback {
             resetZoom()
             preload?.cache?.stop()
             preload = null
+            warmed?.cache?.stop()
+            warmed = null
         }
         if (report && wasActive && it0 != null) {
             val c = AppState.client
@@ -628,6 +641,30 @@ object Playback {
         if (hasPlayed) applySubChoice()
         preloadNext()
         if (System.currentTimeMillis() - lastReport > 10_000) reportNow()
+    }
+
+    /** An info page is open: fetch ~10 s from where Play would start, so it starts at once.
+     *  Skipped while something is playing, so it never takes that video's bandwidth. */
+    fun warm(it0: Item) {
+        if (active.value && wantsPlay) return
+        if (!it0.isPlayable || it0.fileSize <= 0 || it0.durationMs <= 0) return
+        val remote = AppState.client.directUrl(it0) ?: return
+        val dur = it0.durationMs / 1000.0
+        var at = it0.offsetMs / 1000.0
+        if (at > dur - 120) at = 0.0
+        val w = warmed
+        if (w != null && w.key == it0.key && kotlin.math.abs(warmedAt - at) < 5) return
+        w?.cache?.stop()
+        warmed = null
+        warmedAt = at
+        scope.launch {
+            val sc = StreamCache(remote, it0.fileSize, dur, AppState.bufferMinutes.value * 60.0, it0.container,
+                app.cacheDir, preloadSec = 10.0, preloadAt = at)
+            val url = try { withContext(Dispatchers.IO) { sc.start() } } catch (_: Exception) { sc.stop(); return@launch }
+            warmed?.cache?.stop()
+            warmed = Preload(it0.key, sc, url, it0, null)
+            sc.setAllowed(true)
+        }
     }
 
     /** With 5 minutes or less left, fetch the first ~20 s of the next episode so it starts at once.

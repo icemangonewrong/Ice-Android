@@ -30,6 +30,7 @@ class StreamCache(
     container: String?,
     cacheRoot: File,
     preloadSec: Double? = null,
+    preloadAt: Double = 0.0,
 ) {
     data class Snapshot(val bufferedBytes: Long, val offline: Boolean, val bytesPerSecond: Double)
 
@@ -43,6 +44,8 @@ class StreamCache(
     @Volatile private var preloading = preloadSec != null
     @Volatile private var hold = preloadSec != null
     private val tailBytes = 4L * 1024 * 1024
+    /** Preload: byte ranges to fetch in order (start of file or a resume window, then the end of the file). */
+    private var plan: List<Pair<Long, Long>> = emptyList()
     private val dir = File(cacheRoot, "stream-" + UUID.randomUUID())
     private val mime = when ((container ?: "").lowercase()) {
         "mkv" -> "video/x-matroska"
@@ -68,10 +71,23 @@ class StreamCache(
         val free = try { StatFs(cacheRoot.path).availableBytes } catch (_: Exception) { 0L }
         if (free > 0) wanted = minOf(wanted, maxOf(free - 2_000_000_000L, 200_000_000L))
         fullAheadLimit = minOf(wanted, 12_000_000_000L)
-        aheadLimit = if (preloadSec != null)
-            minOf(maxOf((bytesPerSecond * preloadSec * 1.1).toLong(), 4_000_000L), 80_000_000L, size)
-        else fullAheadLimit
+        aheadLimit = fullAheadLimit
+        if (preloadSec != null) {
+            val want = minOf(maxOf((bytesPerSecond * preloadSec * 1.1).toLong(), 4_000_000L), 80_000_000L)
+            val p = mutableListOf<Pair<Long, Long>>()
+            if (preloadAt > 1 && durationSec > 0) {
+                // Resuming partway: the file's start (headers), then a window around the resume point
+                // (estimated from the average bitrate, so start a little before it).
+                p.add(0L to 2_000_000L)
+                val before = (bytesPerSecond * 10).toLong()
+                val est = (size * preloadAt / durationSec).toLong()
+                p.add(maxOf(est - before, 0L) to want + before)
+            } else p.add(0L to want)
+            p.add(size - tailBytes to tailBytes)
+            plan = p.filter { it.first in 0 until size }.map { it.first to minOf(it.second, size - it.first) }
+        }
     }
+
 
     /** Preload only: let it download (true) or hold it so the playing video gets the bandwidth (false). */
     fun setAllowed(on: Boolean) {
@@ -202,10 +218,8 @@ class StreamCache(
                 while (!stopped) {
                     if (preloading) {
                         if (hold) { (lock as Object).wait(1000); continue }
-                        val head = aheadLimit
-                        val ts = size - tailBytes
-                        if (available(0) < head) { start = firstMissing(0); stopAt = head; pre = true; break }
-                        if (ts > head && available(ts) < size - ts) { start = firstMissing(ts); stopAt = size; pre = true; break }
+                        val step = plan.firstOrNull { (a, n) -> available(a) < n }
+                        if (step != null) { start = firstMissing(step.first); stopAt = step.first + step.second; pre = true; break }
                         (lock as Object).wait(1000)
                         continue
                     }

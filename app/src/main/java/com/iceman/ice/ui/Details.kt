@@ -58,8 +58,9 @@ fun DetailScreen(start: Item) {
     var children by remember { mutableStateOf<List<Item>?>(null) }
     LaunchedEffect(version) {
         try {
-            AppState.client.metadata(start.key)?.let { item = it }
+            AppState.client.metadata(start.key)?.let { item = it; Playback.warm(it) }
             if (start.type == "show" || start.type == "season") children = AppState.client.children(start.key)
+            if (start.type == "show") AppState.client.nextEpisode(start.key)?.let { Playback.warm(it) }
         } catch (_: Exception) {}
     }
     when (item.type) {
