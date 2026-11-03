@@ -76,6 +76,11 @@ object Playback {
         } catch (_: Exception) {}
     }
     private var cache: StreamCache? = null
+    /** The next episode's first ~20 seconds, fetched near the end of this one so it starts at once. */
+    private class Preload(val key: String, val cache: StreamCache, val url: String, val item: Item, val after: Item?)
+    private var preload: Preload? = null
+    private var preloadPending: String? = null
+    private var preloadedExtras: Preload? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var ticker: Job? = null
     private val main = Handler(Looper.getMainLooper())
@@ -261,7 +266,16 @@ object Playback {
 
         // Route through the on-phone cache when we know the file size (almost always).
         var url = remote
-        if (t.fileSize > 0 && t.durationMs > 0) {
+        val pre = preload
+        preload = null
+        if (pre != null && pre.key == t.key) {
+            // Already preloaded: start from what's on the phone.
+            pre.cache.promote()
+            cache = pre.cache
+            url = pre.url
+            preloadedExtras = pre
+        } else pre?.cache?.stop()
+        if (cache == null && t.fileSize > 0 && t.durationMs > 0) {
             val sc = StreamCache(remote, t.fileSize, t.durationMs / 1000.0,
                 AppState.bufferMinutes.value * 60.0, t.container, app.cacheDir)
             try {
@@ -292,8 +306,11 @@ object Playback {
     private fun fetchExtras(t: Item) {
         scope.launch {
             val c = AppState.client
-            val full = try { c.details(t.key) } catch (_: Exception) { null }
-            val nxt = if (t.isEpisode) try { c.episodeAdjacent(t, 1) } catch (_: Exception) { null } else null
+            val early = preloadedExtras?.takeIf { it.key == t.key }
+            preloadedExtras = null
+            val full = early?.item ?: try { c.details(t.key) } catch (_: Exception) { null }
+            val nxt = if (early != null) early.after
+                else if (t.isEpisode) try { c.episodeAdjacent(t, 1) } catch (_: Exception) { null } else null
             if (item.value?.key != t.key) return@launch
             if (full != null) {
                 markers = full.markers
@@ -341,7 +358,12 @@ object Playback {
         skipMarker.value = null
         upNextSeconds.value = null
         offline.value = false
-        if (refresh) { showFull.value = false; resetZoom() }
+        if (refresh) {
+            showFull.value = false
+            resetZoom()
+            preload?.cache?.stop()
+            preload = null
+        }
         if (report && wasActive && it0 != null) {
             val c = AppState.client
             scope.launch {
@@ -556,7 +578,44 @@ object Playback {
             offline.value = s.offline
         }
         updateMarkers()
+        preloadNext()
         if (System.currentTimeMillis() - lastReport > 10_000) reportNow()
+    }
+
+    /** With 5 minutes or less left, fetch the first ~20 s of the next episode so it starts at once.
+     *  Only while this episode has a comfortable cushion loaded, so it never stalls the one you're watching. */
+    private fun preloadNext() {
+        val nxt = nextItem.value ?: return
+        val cur = item.value ?: return
+        val dur = durationMs.value / 1000.0
+        val left = dur - positionMs.value / 1000.0
+        if (!hasPlayed || dur <= 0 || left > 300) return
+        val pre = preload
+        if (pre != null && pre.key == nxt.key) {
+            pre.cache.setAllowed(bufferedSec.value >= minOf(60.0, maxOf(left - 2, 0.0)))
+            return
+        }
+        if (preloadPending == nxt.key) return
+        preloadPending = nxt.key
+        val c = AppState.client
+        val minutes = AppState.bufferMinutes.value
+        scope.launch {
+            try {
+                val full = try { c.details(nxt.key) } catch (_: Exception) { null } ?: nxt
+                val after = try { c.episodeAdjacent(full, 1) } catch (_: Exception) { null }
+                if (item.value?.key != cur.key || nextItem.value?.key != nxt.key) return@launch
+                val remote = c.directUrl(full) ?: return@launch
+                if (full.fileSize <= 0 || full.durationMs <= 0) return@launch
+                val sc = StreamCache(remote, full.fileSize, full.durationMs / 1000.0, minutes * 60.0,
+                    full.container, app.cacheDir, preloadSec = 20.0)
+                val url = try { withContext(Dispatchers.IO) { sc.start() } } catch (_: Exception) { sc.stop(); return@launch }
+                if (item.value?.key != cur.key || nextItem.value?.key != nxt.key) { sc.stop(); return@launch }
+                preload?.cache?.stop()
+                preload = Preload(full.key, sc, url, full, after)
+            } finally {
+                if (preloadPending == nxt.key) preloadPending = null
+            }
+        }
     }
 
     private fun reportNow() {

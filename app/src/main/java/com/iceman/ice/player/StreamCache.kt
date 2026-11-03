@@ -29,13 +29,20 @@ class StreamCache(
     aheadSec: Double,
     container: String?,
     cacheRoot: File,
+    preloadSec: Double? = null,
 ) {
     data class Snapshot(val bufferedBytes: Long, val offline: Boolean, val bytesPerSecond: Double)
 
     val bytesPerSecond: Double = maxOf(size / maxOf(durationSec, 1.0), 50_000.0)
     private val chunkSize = 4L * 1024 * 1024
     private val behindLimit = 300L * 1024 * 1024
-    private val aheadLimit: Long
+    @Volatile private var aheadLimit: Long
+    private val fullAheadLimit: Long
+    /** Preload mode: only the first part (and the last few MB) are fetched, and only while allowed,
+     *  until promote() turns this into the normal cache for the playing video. */
+    @Volatile private var preloading = preloadSec != null
+    @Volatile private var hold = preloadSec != null
+    private val tailBytes = 4L * 1024 * 1024
     private val dir = File(cacheRoot, "stream-" + UUID.randomUUID())
     private val mime = when ((container ?: "").lowercase()) {
         "mkv" -> "video/x-matroska"
@@ -60,7 +67,26 @@ class StreamCache(
         var wanted = (bytesPerSecond * maxOf(aheadSec, 60.0)).toLong()
         val free = try { StatFs(cacheRoot.path).availableBytes } catch (_: Exception) { 0L }
         if (free > 0) wanted = minOf(wanted, maxOf(free - 2_000_000_000L, 200_000_000L))
-        aheadLimit = minOf(wanted, 12_000_000_000L)
+        fullAheadLimit = minOf(wanted, 12_000_000_000L)
+        aheadLimit = if (preloadSec != null)
+            minOf(maxOf((bytesPerSecond * preloadSec * 1.1).toLong(), 4_000_000L), 80_000_000L, size)
+        else fullAheadLimit
+    }
+
+    /** Preload only: let it download (true) or hold it so the playing video gets the bandwidth (false). */
+    fun setAllowed(on: Boolean) {
+        if (!preloading || hold == !on) return
+        synchronized(lock) { hold = !on; (lock as Object).notifyAll() }
+    }
+
+    /** The preloaded video is now playing: become its normal cache. */
+    fun promote() {
+        synchronized(lock) {
+            preloading = false
+            hold = false
+            aheadLimit = fullAheadLimit
+            (lock as Object).notifyAll()
+        }
     }
 
     /** Starts the local server; returns the address to give the player. */
@@ -163,13 +189,25 @@ class StreamCache(
     private fun downloadLoop() {
         val buf = ByteArray(64 * 1024)
         while (!stopped) {
-            val start: Long
+            var start = 0L
+            var stopAt = size
+            var pre = false
             synchronized(lock) {
-                // Wait while we're far enough ahead.
-                while (!stopped && firstMissing(readPos) - readPos > aheadLimit * 9 / 10) {
-                    (lock as Object).wait(1000)
+                while (!stopped) {
+                    if (preloading) {
+                        if (hold) { (lock as Object).wait(1000); continue }
+                        val head = aheadLimit
+                        val ts = size - tailBytes
+                        if (available(0) < head) { start = firstMissing(0); stopAt = head; pre = true; break }
+                        if (ts > head && available(ts) < size - ts) { start = firstMissing(ts); stopAt = size; pre = true; break }
+                        (lock as Object).wait(1000)
+                        continue
+                    }
+                    // Wait while we're far enough ahead.
+                    if (firstMissing(readPos) - readPos > aheadLimit * 9 / 10) { (lock as Object).wait(1000); continue }
+                    start = firstMissing(readPos)
+                    break
                 }
-                start = firstMissing(readPos)
             }
             if (stopped) break
             if (start >= size) { synchronized(lock) { (lock as Object).wait(1000) }; continue }
@@ -192,6 +230,11 @@ class StreamCache(
                         downloadPos += n
                         offline = false
                         (lock as Object).notifyAll()
+                    }
+                    if (pre) {
+                        // Preload: stop at the end of the part we want, or when told to hold.
+                        if (downloadPos >= stopAt || hold || !preloading) break
+                        continue
                     }
                     // Player jumped somewhere this download isn't heading, or we're far enough ahead: restart/hold.
                     val rp = readPos
