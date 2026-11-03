@@ -79,6 +79,12 @@ class StreamCache(
         synchronized(lock) { hold = !on; (lock as Object).notifyAll() }
     }
 
+    /** Last minutes of the video: keep downloading all the way to the end, whatever the buffer setting. */
+    fun loadToEnd() {
+        if (preloading || aheadLimit >= size) return
+        synchronized(lock) { aheadLimit = size; (lock as Object).notifyAll() }
+    }
+
     /** The preloaded video is now playing: become its normal cache. */
     fun promote() {
         synchronized(lock) {

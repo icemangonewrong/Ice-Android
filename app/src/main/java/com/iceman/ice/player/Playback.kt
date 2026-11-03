@@ -323,8 +323,7 @@ object Playback {
             if (full != null) {
                 markers = full.markers
                 pendingSubs = full.externalSubtitles.mapNotNull { c.streamUrl(it.key) }
-                plexEmbeddedSub = full.selectedEmbeddedSubtitle
-                plexExternalSubUrl = full.externalSubtitles.firstOrNull { it.selected }?.let { c.streamUrl(it.key) }
+                // Subtitles stay off until you turn one on here (Plex's per-video choice isn't used).
                 if (hasPlayed) applySubChoice()
                 addPendingSubs()
             }
@@ -634,14 +633,17 @@ object Playback {
     /** With 5 minutes or less left, fetch the first ~20 s of the next episode so it starts at once.
      *  Only while this episode has a comfortable cushion loaded, so it never stalls the one you're watching. */
     private fun preloadNext() {
-        val nxt = nextItem.value ?: return
         val cur = item.value ?: return
         val dur = durationMs.value / 1000.0
         val left = dur - positionMs.value / 1000.0
         if (!hasPlayed || dur <= 0 || left > 300) return
+        // Last 5 minutes: keep loading this episode all the way to its end, whatever the buffer setting.
+        cache?.loadToEnd()
+        val nxt = nextItem.value ?: return
         val pre = preload
         if (pre != null && pre.key == nxt.key) {
-            pre.cache.setAllowed(bufferedSec.value >= minOf(60.0, maxOf(left - 2, 0.0)))
+            // The next episode only loads once this one is loaded to the end, so it never takes its bandwidth.
+            pre.cache.setAllowed(bufferedSec.value >= maxOf(left - 2, 0.0))
             return
         }
         if (preloadPending == nxt.key) return
