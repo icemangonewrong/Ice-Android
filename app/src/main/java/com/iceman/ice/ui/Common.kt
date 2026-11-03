@@ -115,6 +115,11 @@ fun PosterCard(item: Item, width: Dp = 120.dp, onClick: () -> Unit) {
             item.progress?.let {
                 ProgressLine(it, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(6.dp))
             }
+            item.imdbRating?.let { r ->
+                Text("IMDb %.1f".format(r), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.align(Alignment.TopStart).padding(5.dp)
+                        .background(Color(0xFFF5C518), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+            }
             if (item.showCheck) {
                 Icon(Icons.Filled.CheckCircle, null, tint = LocalAccent.current,
                     modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).size(22.dp).background(Color.White, CircleShape))
@@ -127,10 +132,15 @@ fun PosterCard(item: Item, width: Dp = 120.dp, onClick: () -> Unit) {
 }
 
 @Composable
-fun PosterRow(title: String, items: List<Item>, onOpen: (Item) -> Unit) {
+fun PosterRow(title: String, items: List<Item>, onTitle: (() -> Unit)? = null, onOpen: (Item) -> Unit) {
     if (items.isEmpty()) return
     Column(Modifier.padding(top = 18.dp)) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+        if (onTitle != null) {
+            Text("$title  ›", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(onClick = onTitle).padding(horizontal = 16.dp, vertical = 2.dp))
+        } else {
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
             items(items, key = { it.key }) { PosterCard(it) { onOpen(it) } }

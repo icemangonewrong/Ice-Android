@@ -70,6 +70,14 @@ class Item(val j: JSONObject) {
     val sectionId: String? get() = j.str("librarySectionID")
     val contentRating: String? get() = j.str("contentRating")
     val rating: Double? get() = j.dbl("audienceRating") ?: j.dbl("rating")
+
+    /** The IMDb score, when the server has one (library's ratings source set to IMDb, or listed in Rating). */
+    val imdbRating: Double? get() {
+        j.objs("Rating").firstOrNull { (it.str("image") ?: "").startsWith("imdb://") }?.dbl("value")?.let { return it }
+        if ((j.str("audienceRatingImage") ?: "").startsWith("imdb://")) j.dbl("audienceRating")?.let { return it }
+        if ((j.str("ratingImage") ?: "").startsWith("imdb://")) j.dbl("rating")?.let { return it }
+        return null
+    }
     val tagline: String? get() = j.str("tagline")
     val studio: String? get() = j.str("studio")
 
@@ -312,7 +320,14 @@ class PlexClient(val clientId: String) {
         withContext(Dispatchers.IO) {
             val q = mutableMapOf("sort" to sort, "X-Plex-Container-Start" to "$start", "X-Plex-Container-Size" to "$size")
             if (unwatched) q["unwatched"] = "1"
-            val o = get("/library/sections/$section/all", q)
+            val o = try {
+                get("/library/sections/$section/all", q)
+            } catch (e: PlexException) {
+                // Older servers without "newest episode" sorting: fall back to when the show was added.
+                if (!sort.startsWith("episode.")) throw e
+                q["sort"] = "addedAt:desc"
+                get("/library/sections/$section/all", q)
+            }
             items(o) to (o.optJSONObject("MediaContainer")?.optInt("totalSize", -1) ?: -1)
         }
 

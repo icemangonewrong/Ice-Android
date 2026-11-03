@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,7 +79,7 @@ import kotlinx.coroutines.launch
 
 sealed class Page {
     data class Detail(val item: Item) : Page()
-    data class Library(val section: Section) : Page()
+    data class Library(val section: Section, val sort: String? = null) : Page()
 }
 
 class Nav {
@@ -214,7 +215,10 @@ fun HomeScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { Text(server?.name ?: "Home", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 0.dp)) }
         item { PosterRow("Continue Watching", cw!!) { nav.open(it) } }
-        items(recent, key = { it.first.key }) { (s, list) -> PosterRow("Recently Added · ${s.title}", list) { nav.open(it) } }
+        items(recent, key = { it.first.key }) { (s, list) ->
+            PosterRow("Recently Added · ${s.title}", list,
+                onTitle = { nav.push(Page.Library(s, if (s.type == "show") "episode.addedAt:desc" else "addedAt:desc")) }) { nav.open(it) }
+        }
     }
 }
 
@@ -244,9 +248,9 @@ fun LibrariesScreen() {
 }
 
 @Composable
-fun LibraryGridScreen(section: Section) {
+fun LibraryGridScreen(section: Section, initialSort: String? = null) {
     val nav = LocalNav.current
-    var sort by remember { mutableStateOf("titleSort") }
+    var sort by remember { mutableStateOf(initialSort ?: "titleSort") }
     var unwatched by remember { mutableStateOf(false) }
     val items = remember(sort, unwatched) { mutableStateListOf<Item>() }
     var total by remember(sort, unwatched) { mutableIntStateOf(-1) }
@@ -270,8 +274,11 @@ fun LibraryGridScreen(section: Section) {
     LaunchedEffect(nearEnd, items.size) { if (nearEnd) loadMore() }
     Column(Modifier.fillMaxSize()) {
         BackBar(section.title)
-        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((label, key) in listOf("A–Z" to "titleSort", "Recently added" to "addedAt:desc", "Release date" to "originallyAvailableAt:desc")) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val sorts = listOfNotNull("A–Z" to "titleSort",
+                if (section.type == "show") "Newest episode" to "episode.addedAt:desc" else null,
+                "Recently added" to "addedAt:desc", "Release date" to "originallyAvailableAt:desc")
+            for ((label, key) in sorts) {
                 FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(label) })
             }
             FilterChip(selected = unwatched, onClick = { unwatched = !unwatched }, label = { Text("Unwatched") })
