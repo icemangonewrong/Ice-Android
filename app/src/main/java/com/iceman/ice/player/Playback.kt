@@ -298,6 +298,7 @@ object Playback {
         p.setEventListener { e -> onEvent(e) }
         val m = Media(vlc(), Uri.parse(url))
         m.setHWDecoderEnabled(true, false)
+        m.addOption(":sub-language=none")   // don't auto-pick a subtitle the file marks as default
         m.addOption(":network-caching=1500")
         if (resume > 1000) m.addOption(":start-time=${resume / 1000.0}")
         p.media = m
@@ -523,18 +524,28 @@ object Playback {
     private fun applySubChoice() {
         val p = player ?: return
         val ids = p.spuTracks?.map { it.id }?.filter { it >= 0 } ?: emptyList()
-        val want = pickedSub ?: plexEmbeddedSub?.let { n -> ids.getOrNull(n - 1) }
-            ?: if (plexExternalSubUrl != null) return else -1
+        val picked = pickedSub
+        if (picked == SUB_LOADING) return
+        val want = picked ?: plexEmbeddedSub?.let { n -> ids.getOrNull(n - 1) }
+            ?: if (plexExternalSubUrl != null && plexExternalSubUrl in pendingSubs) return else -1
         if (p.spuTrack != want) p.setSpuTrack(want)
     }
 
+    /** After adding a subtitle that should be on, remember VLC's number for it so it stays on. */
     private fun rememberCurrentSubLater() {
+        pickedSub = SUB_LOADING
         scope.launch {
-            delay(1500)
-            val id = player?.spuTrack ?: return@launch
-            if (id >= 0) pickedSub = id
+            repeat(10) {
+                delay(500)
+                if (pickedSub != SUB_LOADING) return@launch
+                val id = player?.spuTrack ?: -1
+                if (id >= 0) { pickedSub = id; return@launch }
+            }
+            if (pickedSub == SUB_LOADING) pickedSub = null
         }
     }
+
+    private const val SUB_LOADING = -2
 
     fun setSubtitleDelay(ms: Int) {
         subtitleDelayMs.value = ms
@@ -614,6 +625,8 @@ object Playback {
             offline.value = s.offline
         }
         updateMarkers()
+        // VLC can switch on a default-marked subtitle a moment after starting; keep it to our choice.
+        if (hasPlayed) applySubChoice()
         preloadNext()
         if (System.currentTimeMillis() - lastReport > 10_000) reportNow()
     }
