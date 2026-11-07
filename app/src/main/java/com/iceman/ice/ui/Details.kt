@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -96,6 +97,8 @@ private fun Header(item: Item, eyebrow: String?, title: String, meta: String,
             Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
             Text(meta, color = Muted, fontSize = 13.sp,
                 modifier = if (metaOpens != null) Modifier.clickable { nav.open(metaOpens) } else Modifier)
+            val ver by com.iceman.ice.data.Imdb.version.collectAsState()
+            key(ver) { item.imdbRating }?.let { Box(Modifier.padding(top = 5.dp)) { ImdbBadge(it, 12) } }
         }
     }
 }
@@ -103,7 +106,6 @@ private fun Header(item: Item, eyebrow: String?, title: String, meta: String,
 private fun metaLine(item: Item): String = listOfNotNull(
     item.year?.toString(), item.contentRating,
     item.durationMs.takeIf { it > 0 }?.let { runtimeString(it) },
-    item.rating?.let { "★ %.1f".format(it) },
 ).joinToString("  ·  ")
 
 @Composable
@@ -157,11 +159,18 @@ private fun PlayablePage(item: Item) {
                         Text("${runtimeString(item.durationMs - item.offsetMs)} left", color = Muted, fontSize = 13.sp)
                     }
                 }
+            }
+        }
+        item { Box(Modifier.offset(y = (-56).dp)) { CastRow(plexCast(item)) } }
+        item {
+            Column(Modifier.offset(y = (-50).dp).padding(horizontal = 16.dp)) {
+                val nav = LocalNav.current
                 item.tagline?.let { Text(it, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp)) }
                 item.summary?.let { Text(it, color = TextColor.copy(alpha = 0.9f), modifier = Modifier.padding(top = 8.dp)) }
                 if (item.genres.isNotEmpty()) InfoLine("Genre", item.genres.joinToString(", "))
-                if (item.directors.isNotEmpty()) InfoLine("Director", item.directors.joinToString(", "))
-                if (item.cast.isNotEmpty()) InfoLine("Cast", item.cast.take(8).joinToString(", ") { it.first })
+                LinkLine(if (item.directors.size > 1) "Directors" else "Director", item.directors) { i -> nav.push(Page.Person(null, item.directors[i])) }
+                val writers = item.writers.take(4)
+                LinkLine(if (writers.size > 1) "Writers" else "Writer", writers) { i -> nav.push(Page.Person(null, writers[i])) }
                 val file = listOfNotNull(item.videoResolution?.uppercase()?.let { if (it.all { c -> c.isDigit() }) "${it}p" else it },
                     item.videoCodec?.uppercase(), item.audioCodec?.uppercase(), item.container?.uppercase()).joinToString(" · ")
                 if (file.isNotEmpty()) InfoLine("File", file)
@@ -194,6 +203,11 @@ private fun ShowPage(item: Item, seasons: List<Item>?) {
                     }
                     WatchedButton(item)
                 }
+            }
+        }
+        item { Box(Modifier.offset(y = (-56).dp)) { CastRow(plexCast(item)) } }
+        item {
+            Column(Modifier.offset(y = (-56).dp).padding(horizontal = 16.dp)) {
                 item.summary?.let { Text(it, modifier = Modifier.padding(top = 12.dp)) }
                 Text("Seasons", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
             }
@@ -207,6 +221,8 @@ private fun ShowPage(item: Item, seasons: List<Item>?) {
                 Column(Modifier.weight(1f)) {
                     Text(s.title, fontWeight = FontWeight.SemiBold)
                     Text("${s.leafCount ?: 0} episodes", color = Muted, fontSize = 13.sp)
+                    // Seasons have no score of their own: show the show's.
+                    item.imdbRating?.let { Box(Modifier.padding(top = 3.dp)) { ImdbBadge(it, 10) } }
                 }
                 if (s.isWatched) Icon(Icons.Filled.CheckCircle, null, tint = LocalAccent.current)
             }
@@ -249,6 +265,7 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
                     Text(listOfNotNull(ep.durationMs.takeIf { it > 0 }?.let { runtimeString(it) },
                         ep.progress?.let { "${runtimeString(ep.durationMs - ep.offsetMs)} left" }).joinToString("  ·  "),
                         color = Muted, fontSize = 12.sp)
+                    ep.imdbRating?.let { Box(Modifier.padding(top = 3.dp)) { ImdbBadge(it, 10) } }
                 }
                 if (ep.showCheck) Icon(Icons.Filled.CheckCircle, null, tint = LocalAccent.current)
             }

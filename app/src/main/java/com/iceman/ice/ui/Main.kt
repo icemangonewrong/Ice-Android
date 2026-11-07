@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -100,11 +101,17 @@ private fun MainTabs() {
                 when (val p = nav.current) {
                     is Page.Detail -> androidx.compose.runtime.key(p) { DetailScreen(p.item) }
                     is Page.Library -> androidx.compose.runtime.key(p) { LibraryGridScreen(p.section, p.sort) }
-                    is Page.Request -> androidx.compose.runtime.key(p) { RequestScreen(p.result) }
+                    is Page.Title -> androidx.compose.runtime.key(p) { TitleScreen(p.result) }
+                    is Page.Person -> androidx.compose.runtime.key(p) { PersonScreen(p.id, p.name) }
+                    is Page.Grid -> androidx.compose.runtime.key(p) { GridScreen(p.title, p.kinds, p.source, p.sorts) }
+                    is Page.Collection -> androidx.compose.runtime.key(p) { CollectionScreen(p.id, p.name) }
+                    is Page.Requests -> RequestsScreen()
+                    is Page.RequestStatus -> androidx.compose.runtime.key(p) { RequestStatusScreen(p.request) }
                     null -> when (nav.tab) {
                         0 -> HomeScreen()
-                        1 -> LibrariesScreen()
-                        2 -> SearchScreen()
+                        1 -> DiscoverScreen()
+                        2 -> LibrariesScreen()
+                        3 -> SearchScreen()
                         else -> SettingsScreen()
                     }
                 }
@@ -112,7 +119,7 @@ private fun MainTabs() {
             if (active && !showFull) MiniPlayer()
             val accent = LocalAccent.current
             NavigationBar(containerColor = Panel) {
-                val tabs = listOf("Home" to Icons.Filled.Home, "Libraries" to Icons.Filled.GridView,
+                val tabs = listOf("Home" to Icons.Filled.Home, "Discover" to Icons.Filled.Explore, "Libraries" to Icons.Filled.GridView,
                     "Search" to Icons.Filled.Search, "Settings" to Icons.Filled.Settings)
                 tabs.forEachIndexed { i, (label, icon) ->
                     NavigationBarItem(selected = nav.tab == i, onClick = { nav.switchTab(i) },

@@ -43,7 +43,12 @@ object AppState {
 
     var sections: List<Section> = emptyList()
 
+    lateinit var appContext: Context
+        private set
+
     fun init(context: Context) {
+        appContext = context.applicationContext
+        Imdb.start(appContext)
         prefs = context.getSharedPreferences("ice", Context.MODE_PRIVATE)
         val id = prefs.getString("clientId", null) ?: UUID.randomUUID().toString().also {
             prefs.edit().putString("clientId", it).apply()

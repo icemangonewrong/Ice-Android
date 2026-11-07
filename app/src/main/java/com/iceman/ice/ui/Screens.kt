@@ -79,13 +79,18 @@ import kotlinx.coroutines.launch
 
 sealed class Page {
     data class Detail(val item: Item) : Page()
-    data class Request(val result: com.iceman.ice.seerr.SeerrResult) : Page()
     data class Library(val section: Section, val sort: String? = null) : Page()
+    data class Title(val result: com.iceman.ice.seerr.SeerrResult) : Page()
+    data class Person(val id: Int?, val name: String) : Page()
+    data class Grid(val title: String, val kinds: List<String>, val source: GridSource, val sorts: Boolean = true) : Page()
+    data class Collection(val id: Int, val name: String) : Page()
+    data object Requests : Page()
+    data class RequestStatus(val request: com.iceman.ice.seerr.SeerrRequest) : Page()
 }
 
 class Nav {
     var tab by mutableIntStateOf(0)
-    val stacks = List(4) { mutableStateListOf<Page>() }
+    val stacks = List(5) { mutableStateListOf<Page>() }
     val current: Page? get() = stacks[tab].lastOrNull()
 
     fun open(item: Item) { stacks[tab].add(Page.Detail(item)) }
@@ -305,16 +310,18 @@ fun SearchScreen() {
     var searching by remember { mutableStateOf(false) }
     var others by remember { mutableStateOf<List<com.iceman.ice.seerr.SeerrResult>>(emptyList()) }
     var othersNote by remember { mutableStateOf<String?>(null) }
+    var people by remember { mutableStateOf<List<com.iceman.ice.seerr.SeerrPerson>>(emptyList()) }
     val ctx = LocalContext.current
     LaunchedEffect(query) {
         val t = query.trim()
-        if (t.length < 2) { results = emptyList(); others = emptyList(); othersNote = null; return@LaunchedEffect }
+        if (t.length < 2) { results = emptyList(); others = emptyList(); othersNote = null; people = emptyList(); return@LaunchedEffect }
         delay(400)
         searching = true
         results = try { AppState.client.search(t).filter { !AppState.isExcluded(it) } } catch (_: Exception) { emptyList() }
         // Everything else (not in the library), from Seerr, to request.
         val sr = com.iceman.ice.seerr.Seerr.get(ctx, AppState.client.token)
         if (sr != null) {
+            people = try { sr.searchPeople(t).sortedBy { if (it.photo != null) 0 else 1 }.take(12) } catch (_: Exception) { emptyList() }
             try {
                 others = sr.search(t).filter { it.status != com.iceman.ice.seerr.Seerr.AVAILABLE }
                 othersNote = if (others.isEmpty()) "Nothing else found." else null
@@ -339,13 +346,20 @@ fun SearchScreen() {
                     }
                 }
             }
+            if (people.isNotEmpty()) item {
+                Text("People", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp))
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                    items(people, key = { "${it.id}" }) { p -> CastCard(p, 92.dp) { nav.push(Page.Person(p.id, p.name)) } }
+                }
+            }
             if (others.isNotEmpty() || othersNote != null) {
                 item {
                     Text("Not in your library · request with Seerr", fontSize = 16.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp))
                     othersNote?.let { Text(it, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(horizontal = 16.dp)) }
                 }
-                items(others, key = { "seerr-${it.kind}-${it.id}" }) { r -> SeerrRow(r) { nav.push(Page.Request(r)) } }
+                items(others, key = { "seerr-${it.kind}-${it.id}" }) { r -> SeerrRow(r) { openResult(nav, r) } }
             }
         }
     }

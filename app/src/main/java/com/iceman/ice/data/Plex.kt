@@ -87,8 +87,17 @@ class Item(val j: JSONObject) {
     val contentRating: String? get() = j.str("contentRating")
     val rating: Double? get() = j.dbl("audienceRating") ?: j.dbl("rating")
 
-    /** The IMDb score, when the server has one (library's ratings source set to IMDb, or listed in Rating). */
+    /** tt1234567, from the Guid list (asked for with includeGuids=1). */
+    val imdbId: String? get() {
+        j.objs("Guid").mapNotNull { it.str("id") }.firstOrNull { it.startsWith("imdb://") }?.let { return it.removePrefix("imdb://") }
+        val g = j.str("guid") ?: return null   // old-style agent: com.plexapp.agents.imdb://tt123?lang=en
+        return if (g.contains("imdb://")) g.substringAfter("imdb://").substringBefore('?') else null
+    }
+
+    /** The IMDb score: from IMDb's daily ratings file (every library, every episode), otherwise whatever the
+     *  server has (library's ratings source set to IMDb). */
     val imdbRating: Double? get() {
+        Imdb.rating(imdbId)?.let { return it }
         j.objs("Rating").firstOrNull { (it.str("image") ?: "").startsWith("imdb://") }?.dbl("value")?.let { return it }
         if ((j.str("audienceRatingImage") ?: "").startsWith("imdb://")) j.dbl("audienceRating")?.let { return it }
         if ((j.str("ratingImage") ?: "").startsWith("imdb://")) j.dbl("rating")?.let { return it }
@@ -109,7 +118,7 @@ class Item(val j: JSONObject) {
             if (isEpisode) return listOfNotNull(parentIndex?.let { "S$it" }, index?.let { "E$it" }, rawTitle)
                 .joinToString(" · ")
             if (type == "season") return parentTitle
-            return year?.toString()
+            return listOfNotNull(year?.toString(), contentRating).joinToString(" · ").ifEmpty { null }
         }
 
     val episodeCode: String
@@ -145,6 +154,10 @@ class Item(val j: JSONObject) {
     val genres: List<String> get() = j.objs("Genre").mapNotNull { it.str("tag") }
     val directors: List<String> get() = j.objs("Director").mapNotNull { it.str("tag") }
     val cast: List<Pair<String, String?>> get() = j.objs("Role").mapNotNull { r -> r.str("tag")?.let { it to r.str("role") } }
+    /** Cast with photos: (name, role, photo URL). */
+    val castPhotos: List<Triple<String, String, String?>> get() =
+        j.objs("Role").mapNotNull { r -> r.str("tag")?.let { Triple(it, r.str("role") ?: "", r.str("thumb")) } }
+    val writers: List<String> get() = j.objs("Writer").mapNotNull { it.str("tag") }
 
     val markers: List<Marker>
         get() = j.objs("Marker").mapNotNull {
@@ -300,7 +313,8 @@ class PlexClient(val clientId: String) {
         return b.build().toString()
     }
 
-    private fun get(path: String, query: Map<String, String> = emptyMap()): JSONObject {
+    private fun get(path: String, q: Map<String, String> = emptyMap()): JSONObject {
+        val query = q + ("includeGuids" to "1")   // IMDb IDs, for the IMDb ratings
         val s = server ?: throw PlexException("No Plex server selected.")
         return try {
             JSONObject(http(buildUrl(s.baseURL, path, query), tok = s.accessToken))
