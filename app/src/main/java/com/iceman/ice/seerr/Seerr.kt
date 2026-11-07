@@ -80,9 +80,9 @@ class Seerr(url: String, private val plexToken: String) {
                 c.outputStream.use { it.write(body.toString().toByteArray()) }
             }
             val code = c.responseCode
-            c.headerFields["Set-Cookie"]?.firstOrNull { it.startsWith("connect.sid=") }?.let {
-                cookie = it.substringBefore(';')
-            }
+            c.headerFields.entries.filter { it.key?.equals("Set-Cookie", ignoreCase = true) == true }
+                .flatMap { it.value }.firstOrNull { it.trimStart().startsWith("connect.sid=") }
+                ?.let { cookie = it.trim().substringBefore(';') }
             val text = (if (code >= 400) c.errorStream else c.inputStream)?.bufferedReader()?.use { it.readText() } ?: ""
             return code to text
         } catch (e: SeerrException) {
@@ -95,9 +95,11 @@ class Seerr(url: String, private val plexToken: String) {
     }
 
     private fun login() {
+        cookie = null
         val (code, _) = send("POST", "/auth/plex", JSONObject().put("authToken", plexToken))
         if (code == 403) throw SeerrException("Seerr didn't let this Plex account in.")
         if (code >= 400) throw SeerrException("Seerr sign-in failed ($code).")
+        if (cookie == null) throw SeerrException("Seerr signed in but sent no session cookie.")
     }
 
     private fun call(method: String, path: String, body: JSONObject? = null): String {
