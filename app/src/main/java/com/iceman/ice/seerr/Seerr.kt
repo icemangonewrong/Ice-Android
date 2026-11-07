@@ -32,10 +32,12 @@ class Seerr(url: String, private val plexToken: String) {
     companion object {
         const val PENDING = 2; const val PROCESSING = 3; const val PARTIAL = 4; const val AVAILABLE = 5
         val STATUS_TEXT = mapOf(2 to "Requested", 3 to "Requested", 4 to "Partly available", 5 to "Available")
-        const val DEFAULT_URL = "http://10.66.66.1:5055"
+        const val DEFAULT_URL = "http://10.66.66.1:5056"
 
-        fun savedUrl(ctx: Context): String =
-            ctx.getSharedPreferences("ice", Context.MODE_PRIVATE).getString("seerrUrl", null) ?: DEFAULT_URL
+        fun savedUrl(ctx: Context): String {
+            val saved = ctx.getSharedPreferences("ice", Context.MODE_PRIVATE).getString("seerrUrl", null) ?: DEFAULT_URL
+            return if (saved.trimEnd('/') == "http://10.66.66.1:5055") DEFAULT_URL else saved   // first default had the wrong port
+        }
 
         fun saveUrl(ctx: Context, url: String) =
             ctx.getSharedPreferences("ice", Context.MODE_PRIVATE).edit().putString("seerrUrl", url.trim()).apply()
