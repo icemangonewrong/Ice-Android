@@ -79,7 +79,7 @@ object Imdb {
         var sorted = true; var last = -1
         try {
             if (c.responseCode != 200) throw java.io.IOException("IMDb said ${c.responseCode}")
-            GZIPInputStream(c.inputStream.buffered(1 shl 16)).bufferedReader(Charsets.US_ASCII, 1 shl 16).useLines { lines ->
+            java.io.InputStreamReader(GZIPInputStream(c.inputStream.buffered(1 shl 16)), Charsets.US_ASCII).buffered(1 shl 16).useLines { lines ->
                 for (line in lines) {
                     if (!line.startsWith("tt")) continue
                     val t1 = line.indexOf('\t'); if (t1 < 0) continue
