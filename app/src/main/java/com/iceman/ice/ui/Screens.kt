@@ -79,6 +79,7 @@ import kotlinx.coroutines.launch
 
 sealed class Page {
     data class Detail(val item: Item) : Page()
+    data class Request(val result: com.iceman.ice.seerr.SeerrResult) : Page()
     data class Library(val section: Section, val sort: String? = null) : Page()
 }
 
@@ -302,19 +303,30 @@ fun SearchScreen() {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Item>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    var others by remember { mutableStateOf<List<com.iceman.ice.seerr.SeerrResult>>(emptyList()) }
+    var othersNote by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
     LaunchedEffect(query) {
         val t = query.trim()
-        if (t.length < 2) { results = emptyList(); return@LaunchedEffect }
+        if (t.length < 2) { results = emptyList(); others = emptyList(); othersNote = null; return@LaunchedEffect }
         delay(400)
         searching = true
         results = try { AppState.client.search(t).filter { !AppState.isExcluded(it) } } catch (_: Exception) { emptyList() }
+        // Everything else (not in the library), from Seerr, to request.
+        val sr = com.iceman.ice.seerr.Seerr.get(ctx, AppState.client.token)
+        if (sr != null) {
+            try {
+                others = sr.search(t).filter { it.status != com.iceman.ice.seerr.Seerr.AVAILABLE }
+                othersNote = if (others.isEmpty()) "Nothing else found." else null
+            } catch (e: Exception) { others = emptyList(); othersNote = "Couldn't search Seerr: ${e.message}" }
+        }
         searching = false
     }
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(query, { query = it }, singleLine = true, placeholder = { Text("Movies and shows") },
             leadingIcon = { Icon(Icons.Filled.Search, null) }, modifier = Modifier.fillMaxWidth().padding(16.dp))
         if (searching) { CenterSpinner(); return }
-        if (query.trim().length >= 2 && results.isEmpty()) { Message("No results"); return }
+        if (query.trim().length >= 2 && results.isEmpty() && others.isEmpty() && othersNote == null) { Message("No results"); return }
         LazyColumn {
             items(results, key = { it.key }) { item ->
                 Row(Modifier.fillMaxWidth().clickable { nav.open(item) }.padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -326,6 +338,14 @@ fun SearchScreen() {
                             fontSize = 12.sp, color = Muted)
                     }
                 }
+            }
+            if (others.isNotEmpty() || othersNote != null) {
+                item {
+                    Text("Not in your library · request with Seerr", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp))
+                    othersNote?.let { Text(it, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(horizontal = 16.dp)) }
+                }
+                items(others, key = { "seerr-${it.kind}-${it.id}" }) { r -> SeerrRow(r) { nav.push(Page.Request(r)) } }
             }
         }
     }
@@ -397,6 +417,9 @@ fun SettingsScreen() {
 
         SettingsHeader("Account")
         TextButton(onClick = { AppState.signOut() }) { Text("Sign out", color = Color(0xFFFF6B6B)) }
+
+        SettingsHeader("Requests (Seerr)", "Search shows everything, not just your library, and lets you request what's missing through Seerr. Ice signs in with your Plex account. Over WireGuard the address is usually ${com.iceman.ice.seerr.Seerr.DEFAULT_URL}.")
+        SeerrSettings()
 
         SettingsHeader("About")
         val ctx = LocalContext.current

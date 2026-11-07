@@ -100,6 +100,7 @@ private fun MainTabs() {
                 when (val p = nav.current) {
                     is Page.Detail -> androidx.compose.runtime.key(p) { DetailScreen(p.item) }
                     is Page.Library -> androidx.compose.runtime.key(p) { LibraryGridScreen(p.section, p.sort) }
+                    is Page.Request -> androidx.compose.runtime.key(p) { RequestScreen(p.result) }
                     null -> when (nav.tab) {
                         0 -> HomeScreen()
                         1 -> LibrariesScreen()
