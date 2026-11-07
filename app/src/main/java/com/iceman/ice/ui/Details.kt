@@ -83,14 +83,19 @@ private fun Backdrop(path: String?) {
 }
 
 @Composable
-private fun Header(item: Item, eyebrow: String?, title: String, meta: String) {
+private fun Header(item: Item, eyebrow: String?, title: String, meta: String,
+                   eyebrowOpens: Item? = null, metaOpens: Item? = null) {
+    val nav = LocalNav.current
     Row(Modifier.fillMaxWidth().offset(y = (-70).dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.Bottom) {
         PlexImage(item.posterPath, 300, 450, Modifier.size(110.dp, 165.dp).clip(RoundedCornerShape(8.dp)))
         Spacer(Modifier.width(14.dp))
         Column {
-            if (eyebrow != null) Text(eyebrow, color = LocalAccent.current, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            if (eyebrow != null) Text(eyebrow + if (eyebrowOpens != null) "  ›" else "", color = LocalAccent.current,
+                fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                modifier = if (eyebrowOpens != null) Modifier.clickable { nav.open(eyebrowOpens) } else Modifier)
             Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            Text(meta, color = Muted, fontSize = 13.sp)
+            Text(meta, color = Muted, fontSize = 13.sp,
+                modifier = if (metaOpens != null) Modifier.clickable { nav.open(metaOpens) } else Modifier)
         }
     }
 }
@@ -128,7 +133,9 @@ private fun PlayablePage(item: Item) {
         item {
             Header(item, if (item.isEpisode) item.grandparentTitle else null, item.title,
                 if (item.isEpisode) listOfNotNull(item.episodeCode.takeIf { it.isNotEmpty() }, metaLine(item)).joinToString("  ·  ")
-                else metaLine(item))
+                else metaLine(item),
+                eyebrowOpens = if (item.isEpisode) item.showItem() else null,
+                metaOpens = if (item.isEpisode) item.seasonItem() else null)
         }
         item {
             Column(Modifier.offset(y = (-56).dp).padding(horizontal = 16.dp)) {
@@ -217,7 +224,10 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
                 PlexImage(item.thumb, 200, 300, Modifier.size(90.dp, 135.dp).clip(RoundedCornerShape(8.dp)))
                 Spacer(Modifier.width(14.dp))
                 Column {
-                    Text(item.parentTitle ?: "", color = LocalAccent.current, fontWeight = FontWeight.SemiBold)
+                    val show = item.showItem()
+                    Text((item.parentTitle ?: "") + if (show != null) "  ›" else "", color = LocalAccent.current,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = if (show != null) Modifier.clickable { nav.open(show) } else Modifier)
                     Text(item.title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("${episodes?.size ?: item.leafCount ?: 0} episodes", color = Muted)
                     Spacer(Modifier.height(8.dp))

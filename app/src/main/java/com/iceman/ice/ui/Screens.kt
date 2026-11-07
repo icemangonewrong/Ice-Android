@@ -287,7 +287,7 @@ fun LibraryGridScreen(section: Section, initialSort: String? = null) {
         LazyVerticalGrid(GridCells.Adaptive(110.dp), state = grid, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(items, key = { it.key }) { PosterCard(it, 110.dp) { nav.open(it) } }
+            items(items, key = { it.key }) { PosterCard(it, 110.dp, onOpen = { o -> nav.open(o) }) { nav.open(it) } }
         }
     }
 }

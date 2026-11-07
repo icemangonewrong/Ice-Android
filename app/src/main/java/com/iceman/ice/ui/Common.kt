@@ -105,11 +105,15 @@ fun PlexImage(path: String?, width: Int, height: Int, modifier: Modifier = Modif
     }
 }
 
-/** Poster with title, progress bar and watched check. Tapping always opens the info page. */
+/** Poster with title, progress bar and watched check. Tapping the picture opens the info page; like Plex, under
+ *  an episode the show name opens the show (all seasons) and "S2 · E5" opens that season's episodes, and under a
+ *  season the show name opens the show. */
 @Composable
-fun PosterCard(item: Item, width: Dp = 120.dp, onClick: () -> Unit) {
-    Column(Modifier.width(width).clickable(onClick = onClick)) {
-        Box {
+fun PosterCard(item: Item, width: Dp = 120.dp, onOpen: ((Item) -> Unit)? = null, onClick: () -> Unit) {
+    val titleTo = if (item.isEpisode) item.showItem() else null
+    val subTo = when (item.type) { "episode" -> item.seasonItem(); "season" -> item.showItem(); else -> null }
+    Column(Modifier.width(width)) {
+        Box(Modifier.clickable(onClick = onClick)) {
             PlexImage(item.posterPath, 300, 450,
                 Modifier.width(width).height(width * 1.5f).clip(RoundedCornerShape(8.dp)))
             item.progress?.let {
@@ -126,8 +130,13 @@ fun PosterCard(item: Item, width: Dp = 120.dp, onClick: () -> Unit) {
             }
         }
         Text(item.displayTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-        Text(item.displaySubtitle ?: "", fontSize = 11.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+                .clickable { if (titleTo != null && onOpen != null) onOpen(titleTo) else onClick() }
+                .padding(top = 6.dp))
+        Text(item.displaySubtitle ?: "", fontSize = 11.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+                .clickable { if (subTo != null && onOpen != null) onOpen(subTo) else onClick() })
     }
 }
 
@@ -143,7 +152,7 @@ fun PosterRow(title: String, items: List<Item>, onTitle: (() -> Unit)? = null, o
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
-            items(items, key = { it.key }) { PosterCard(it) { onOpen(it) } }
+            items(items, key = { it.key }) { PosterCard(it, onOpen = onOpen) { onOpen(it) } }
         }
     }
 }

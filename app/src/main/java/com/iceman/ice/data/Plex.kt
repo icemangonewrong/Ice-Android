@@ -59,6 +59,22 @@ class Item(val j: JSONObject) {
     val parentTitle: String? get() = j.str("parentTitle")
     val grandparentKey: String? get() = j.str("grandparentRatingKey")
     val parentKey: String? get() = j.str("parentRatingKey")
+
+    /** The show an episode or season belongs to (enough to open its page). */
+    fun showItem(): Item? {
+        val k = when (type) { "episode" -> grandparentKey; "season" -> parentKey; else -> null } ?: return null
+        val t = if (type == "episode") grandparentTitle else parentTitle
+        return Item(JSONObject().put("ratingKey", k).put("type", "show").put("title", t ?: ""))
+    }
+
+    /** The season an episode belongs to (enough to open its episode list). */
+    fun seasonItem(): Item? {
+        if (type != "episode") return null
+        val k = parentKey ?: return null
+        return Item(JSONObject().put("ratingKey", k).put("type", "season")
+            .put("title", parentTitle ?: parentIndex?.let { "Season $it" } ?: "Season")
+            .put("parentTitle", grandparentTitle ?: "").put("parentRatingKey", grandparentKey ?: ""))
+    }
     val index: Int? get() = j.int("index")
     val parentIndex: Int? get() = j.int("parentIndex")
     val durationMs: Long get() = j.long("duration") ?: 0
