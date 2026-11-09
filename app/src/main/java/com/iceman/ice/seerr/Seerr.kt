@@ -94,8 +94,15 @@ class Seerr(url: String, private val plexToken: String) {
             "Peacock" to listOf("peacock premium", "peacock"),
             "Paramount+" to listOf("paramount plus", "paramount+", "paramount plus premium"))
 
+        /** No address until it's set up in Settings. (Phones that already used Seerr with the old built-in address
+         *  keep it.) */
         fun savedUrl(ctx: Context): String {
-            val saved = ctx.getSharedPreferences("ice", Context.MODE_PRIVATE).getString("seerrUrl", null) ?: DEFAULT_URL
+            val prefs = ctx.getSharedPreferences("ice", Context.MODE_PRIVATE)
+            if (!prefs.contains("seerrUrl")) {
+                val used = java.io.File(ctx.cacheDir, "seerr_extras.json").exists()
+                prefs.edit().putString("seerrUrl", if (used) DEFAULT_URL else "").apply()
+            }
+            val saved = prefs.getString("seerrUrl", "") ?: ""
             return if (saved.trimEnd('/') == "http://10.66.66.1:5055") DEFAULT_URL else saved   // first default had the wrong port
         }
 
@@ -432,6 +439,16 @@ class Seerr(url: String, private val plexToken: String) {
         out
     } catch (_: Exception) {
         r.copy(title = if (r.kind == "movie") "Movie ${r.tmdbId}" else "Show ${r.tmdbId}")
+    }
+
+    data class Schedule(val code: String, val name: String, val date: String, val status: String, val last: String)
+
+    /** A show's release schedule: next episode ("S4 E7", name, date) and status (e.g. "Ended"). */
+    suspend fun schedule(tmdbId: Int): Schedule = withContext(Dispatchers.IO) {
+        val d = obj("/tv/$tmdbId")
+        val n = d.optJSONObject("nextEpisodeToAir") ?: JSONObject()
+        val code = if (n.has("seasonNumber")) "S${n.optInt("seasonNumber")} E${n.optInt("episodeNumber")}" else ""
+        Schedule(code, n.s("name"), n.s("airDate"), d.s("status"), d.optJSONObject("lastEpisodeToAir")?.s("airDate") ?: "")
     }
 
     suspend fun seasonEpisodes(tmdbId: Int, season: Int): List<SeerrEpisode> = withContext(Dispatchers.IO) {

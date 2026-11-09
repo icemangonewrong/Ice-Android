@@ -190,6 +190,21 @@ private fun InfoLine(label: String, value: String) {
 @Composable
 private fun ShowPage(item: Item, seasons: List<Item>?) {
     val nav = LocalNav.current
+    val sr = seerr()
+    var schedule by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(item.tmdbId) {
+        val s = sr ?: return@LaunchedEffect
+        val tid = item.tmdbId ?: return@LaunchedEffect
+        try {
+            val x = s.schedule(tid)
+            schedule = when {
+                x.code.isNotEmpty() -> "Next episode: ${x.code}" + (if (x.name.isEmpty()) "" else " “${x.name}”") +
+                    " · " + (if (x.date.isEmpty()) "date not announced" else weekdayDate(x.date))
+                x.status == "Ended" || x.status == "Canceled" -> x.status + (if (x.last.isEmpty()) "" else " · last episode ${niceDate(x.last)}")
+                else -> null
+            }
+        } catch (_: Exception) {}
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 30.dp)) {
         item { Backdrop(item.art ?: item.thumb) }
         item { Header(item, null, item.title, listOfNotNull(item.year?.toString(), item.contentRating,
@@ -208,6 +223,8 @@ private fun ShowPage(item: Item, seasons: List<Item>?) {
         item { Box(Modifier.offset(y = (-56).dp)) { CastRow(plexCast(item)) } }
         item {
             Column(Modifier.offset(y = (-56).dp).padding(horizontal = 16.dp)) {
+                schedule?.let { Text(it, color = if (it.startsWith("Next")) LocalAccent.current else Muted,
+                    fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp)) }
                 item.summary?.let { Text(it, modifier = Modifier.padding(top = 12.dp)) }
                 Text("Seasons", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
             }
@@ -233,6 +250,19 @@ private fun ShowPage(item: Item, seasons: List<Item>?) {
 @Composable
 private fun SeasonPage(item: Item, episodes: List<Item>?) {
     val nav = LocalNav.current
+    val sr = seerr()
+    var coming by remember { mutableStateOf<List<com.iceman.ice.seerr.SeerrEpisode>>(emptyList()) }
+    LaunchedEffect(item.key, episodes?.size) {
+        val s = sr ?: return@LaunchedEffect
+        val eps = episodes ?: return@LaunchedEffect
+        val show = item.parentKey ?: return@LaunchedEffect
+        val n = item.index ?: return@LaunchedEffect
+        try {
+            val tid = AppState.client.metadata(show)?.tmdbId ?: return@LaunchedEffect
+            val have = eps.mapNotNull { it.index }.toSet()
+            coming = s.seasonEpisodes(tid, n).filter { it.number !in have }
+        } catch (_: Exception) {}
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 30.dp)) {
         item { BackBar(item.parentTitle ?: "") }
         item {
@@ -252,6 +282,20 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
             }
         }
         if (episodes == null) item { Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { Spinner() } }
+        // Episodes not here yet (from Seerr): ones still to air with their dates, and any that are out but missing.
+        if (coming.isNotEmpty()) {
+            item { Text("Not in your library yet", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp)) }
+            items(coming, key = { "coming-${it.number}" }) { e ->
+                val d = parseDay(e.airDate)
+                val future = d == null || d.after(java.util.Date())
+                Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${e.number}. ${e.name.ifEmpty { "Episode ${e.number}" }}", color = TextColor.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.weight(1f))
+                    Text(if (e.airDate.isEmpty()) "Date not announced" else if (future) "Airs ${weekdayDate(e.airDate)}" else "Aired ${niceDate(e.airDate)}",
+                        color = if (future) LocalAccent.current else Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
         else items(episodes, key = { it.key }) { ep ->
             Row(Modifier.fillMaxWidth().clickable { nav.open(ep) }.padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box {
@@ -262,10 +306,9 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
                 Column(Modifier.weight(1f)) {
                     Text("${ep.index?.let { "$it. " } ?: ""}${ep.title}", fontWeight = FontWeight.SemiBold, maxLines = 2,
                         overflow = TextOverflow.Ellipsis)
-                    Text(listOfNotNull(ep.durationMs.takeIf { it > 0 }?.let { runtimeString(it) },
+                    Text(listOfNotNull(ep.airDateRaw?.let { niceDate(it) }, ep.durationMs.takeIf { it > 0 }?.let { runtimeString(it) },
                         ep.progress?.let { "${runtimeString(ep.durationMs - ep.offsetMs)} left" }).joinToString("  ·  "),
                         color = Muted, fontSize = 12.sp)
-                    ep.imdbRating?.let { Box(Modifier.padding(top = 3.dp)) { ImdbBadge(it, 10) } }
                 }
                 if (ep.showCheck) Icon(Icons.Filled.CheckCircle, null, tint = LocalAccent.current)
             }

@@ -103,6 +103,12 @@ fun openResult(nav: Nav, r: SeerrResult) {
 
 private val dayFmt get() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 fun parseDay(s: String): Date? = try { dayFmt.parse(s.take(10)) } catch (_: Exception) { null }
+/** "Sat, Nov 15" (adds the year when it isn't this year). */
+fun weekdayDate(s: String): String {
+    val d = parseDay(s) ?: return s
+    val y = SimpleDateFormat("yyyy", Locale.US)
+    return SimpleDateFormat(if (y.format(d) == y.format(Date())) "EEE, MMM d" else "EEE, MMM d, yyyy", Locale.US).format(d)
+}
 fun niceDate(s: String): String = parseDay(s)?.let { SimpleDateFormat("MMM d, yyyy", Locale.US).format(it) } ?: s
 fun shortDate(s: String): String {
     val d = parseDay(s) ?: return ""
@@ -261,7 +267,15 @@ fun DiscoverScreen() {
             }
         }
         if (sr == null) {
-            item { Text("Discover uses your Seerr. Set its address in Settings → Requests (Seerr).", color = Muted, modifier = Modifier.padding(16.dp)) }
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Discover and requests use Seerr. Set it up in Settings → Requests (Seerr).", color = Muted)
+                    Button(onClick = { nav.switchTab(4) }, modifier = Modifier.padding(top = 12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = LocalAccent.current, contentColor = Color.Black)) {
+                        Text("Open Settings", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             return@LazyColumn
         }
         if (failed.size == ROWS.size) item {

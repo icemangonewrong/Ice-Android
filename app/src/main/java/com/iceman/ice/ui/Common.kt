@@ -119,7 +119,7 @@ fun PosterCard(item: Item, width: Dp = 120.dp, onOpen: ((Item) -> Unit)? = null,
             item.progress?.let {
                 ProgressLine(it, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(6.dp))
             }
-            item.imdbRating?.let { r ->
+            item.imdbRating?.takeIf { !item.isEpisode }?.let { r ->   // not on single episodes
                 Text("IMDb %.1f".format(r), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.TopStart).padding(5.dp)
                         .background(Color(0xFFF5C518), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp))

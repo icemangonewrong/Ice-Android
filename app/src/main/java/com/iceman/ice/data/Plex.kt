@@ -87,6 +87,11 @@ class Item(val j: JSONObject) {
     val contentRating: String? get() = j.str("contentRating")
     val rating: Double? get() = j.dbl("audienceRating") ?: j.dbl("rating")
 
+    val tmdbId: Int? get() = j.objs("Guid").mapNotNull { it.str("id") }.firstOrNull { it.startsWith("tmdb://") }
+        ?.removePrefix("tmdb://")?.toIntOrNull()
+    /** "2026-08-12": when it first aired / came out. */
+    val airDateRaw: String? get() = j.str("originallyAvailableAt")
+
     /** tt1234567, from the Guid list (asked for with includeGuids=1). */
     val imdbId: String? get() {
         j.objs("Guid").mapNotNull { it.str("id") }.firstOrNull { it.startsWith("imdb://") }?.let { return it.removePrefix("imdb://") }
