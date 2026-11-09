@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,6 +53,15 @@ fun SeerrRow(r: SeerrResult, onClick: () -> Unit) {
             Text(listOfNotNull(r.year.ifEmpty { null }, e?.cert?.ifEmpty { null }, r.kindText, r.statusText).joinToString(" · "),
                 fontSize = 12.sp, color = Muted)
             key(ver) { com.iceman.ice.data.Imdb.rating(e?.imdb) }?.let { Box(Modifier.padding(top = 3.dp)) { ImdbBadge(it, 10) } }
+        }
+        if (r.mark == "lib") {
+            // In the library (Plex's own search missed it): play right here.
+            Spacer(Modifier.weight(1f))
+            val scope = rememberCoroutineScope()
+            IconButton(onClick = { scope.launch { findInLibrary(r)?.let { playFromLibrary(it) } } },
+                modifier = Modifier.size(38.dp).background(LocalAccent.current, androidx.compose.foundation.shape.CircleShape)) {
+                Icon(androidx.compose.material.icons.Icons.Filled.PlayArrow, "Play", tint = Color.Black)
+            }
         }
     }
 }

@@ -317,13 +317,27 @@ fun SearchScreen() {
         if (t.length < 2) { results = emptyList(); others = emptyList(); othersNote = null; people = emptyList(); return@LaunchedEffect }
         delay(400)
         searching = true
-        results = try { AppState.client.search(t).filter { !AppState.isExcluded(it) } } catch (_: Exception) { emptyList() }
+        // Newest first (library and Seerr alike).
+        results = try {
+            AppState.client.search(t).filter { !AppState.isExcluded(it) }
+                .sortedByDescending { it.airDateRaw ?: it.year?.let { y -> "$y-00-00" } ?: "0000" }
+        } catch (_: Exception) { emptyList() }
         // Everything else (not in the library), from Seerr, to request.
         val sr = com.iceman.ice.seerr.Seerr.get(ctx, AppState.client.token)
         if (sr != null) {
             people = try { sr.searchPeople(t).sortedBy { if (it.photo != null) 0 else 1 }.take(12) } catch (_: Exception) { emptyList() }
             try {
-                others = sr.search(t).filter { it.status != com.iceman.ice.seerr.Seerr.AVAILABLE }
+                // Things in Plex that showed up above are left out here; anything Seerr knows is in the library but
+                // Plex's search missed stays (with Play).
+                val keys = results.map { it.key }.toSet()
+                val tmdb = results.mapNotNull { i -> i.tmdbId?.let { "${i.type}:$it" } }.toSet()
+                val names = results.map { "${it.title.lowercase()}|${it.year ?: ""}" }.toSet()
+                others = sr.search(t).filter { r ->
+                    r.status != com.iceman.ice.seerr.Seerr.AVAILABLE || !(
+                        (r.ratingKey != null && r.ratingKey in keys) ||
+                        "${if (r.kind == "movie") "movie" else "show"}:${r.id}" in tmdb ||
+                        "${r.title.lowercase()}|${r.year}" in names)
+                }.sortedByDescending { it.date.ifEmpty { "0000" } }
                 othersNote = if (others.isEmpty()) "Nothing else found." else null
             } catch (e: Exception) { others = emptyList(); othersNote = "Couldn't search Seerr: ${e.message}" }
         }
@@ -355,7 +369,7 @@ fun SearchScreen() {
             }
             if (others.isNotEmpty() || othersNote != null) {
                 item {
-                    Text("Not in your library · request with Seerr", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                    Text("From Seerr · request what you don't have", fontSize = 16.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp))
                     othersNote?.let { Text(it, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(horizontal = 16.dp)) }
                 }

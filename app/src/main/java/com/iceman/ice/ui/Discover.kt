@@ -93,11 +93,32 @@ fun StatusDot(mark: String?, modifier: Modifier = Modifier) {
     }
 }
 
+/** The Plex item for a Seerr title that's in the library. Seerr usually says which one; when it doesn't, look it
+ *  up in Plex by its TMDB id (or title and year). */
+suspend fun findInLibrary(r: SeerrResult): Item? {
+    val want = if (r.kind == "movie") "movie" else "show"
+    r.ratingKey?.let { rk -> return Item(JSONObject().put("ratingKey", rk).put("type", want).put("title", r.title)) }
+    val hits = try { AppState.client.search(r.title).filter { it.type == want } } catch (_: Exception) { return null }
+    return hits.firstOrNull { it.tmdbId == r.id }
+        ?: hits.firstOrNull { it.title.equals(r.title, ignoreCase = true) && (it.year?.toString() ?: "") == r.year }
+}
+
+/** Play a movie, or a show's next episode. */
+suspend fun playFromLibrary(item: Item) {
+    if (item.type == "show") {
+        try { AppState.client.nextEpisode(item.key)?.let { com.iceman.ice.player.Playback.play(it) } } catch (_: Exception) {}
+    } else com.iceman.ice.player.Playback.play(item)
+}
+
+private val uiScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
 /** In your library: its normal page (to play). Otherwise its title page. */
 fun openResult(nav: Nav, r: SeerrResult) {
-    val rk = r.ratingKey
-    if (r.status == Seerr.AVAILABLE && rk != null) {
-        nav.open(Item(JSONObject().put("ratingKey", rk).put("type", if (r.kind == "movie") "movie" else "show").put("title", r.title)))
+    if (r.status == Seerr.AVAILABLE) {
+        uiScope.launch {
+            val it = findInLibrary(r)
+            if (it != null) nav.open(it) else nav.push(Page.Title(r))
+        }
     } else nav.push(Page.Title(r))
 }
 
@@ -135,7 +156,7 @@ fun SeerrCard(r: SeerrResult, width: Dp = 110.dp) {
     val mark = if (reqState == "done") "req" else r.mark
     Column(Modifier.width(width).combinedClickable(
         onClick = { if (showReq) showReq = false else openResult(nav, r) },
-        onLongClick = { if (mark == null) showReq = true })) {
+        onLongClick = { if (mark == null || r.mark == "lib") showReq = true })) {
         Box {
             Box(Modifier.width(width).height(width * 1.5f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF26262E)),
                 contentAlignment = Alignment.Center) {
@@ -145,6 +166,14 @@ fun SeerrCard(r: SeerrResult, width: Dp = 110.dp) {
             }
             key(ver) { Imdb.rating(e?.imdb) }?.let { Box(Modifier.align(Alignment.TopStart).padding(5.dp)) { ImdbBadge(it, 10) } }
             StatusDot(mark, Modifier.align(Alignment.TopEnd).padding(5.dp))
+            if (showReq && r.mark == "lib") {
+                Button(onClick = { showReq = false; scope.launch { findInLibrary(r)?.let { playFromLibrary(it) } } },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(6.dp).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = LocalAccent.current, contentColor = Color.Black)) {
+                    Text("▶ Play", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                }
+            }
             if (showReq && mark == null) {
                 Button(onClick = {
                     if (sr == null || reqState == "working") return@Button
@@ -513,6 +542,7 @@ fun TitleScreen(start: SeerrResult) {
     var picked by remember { mutableStateOf(setOf<Int>()) }
     var state by remember { mutableStateOf("") }
     var reqError by remember { mutableStateOf<String?>(null) }
+    var libItem by remember { mutableStateOf<Item?>(null) }
     LaunchedEffect(start.uid) {
         val s = sr ?: run { error = "Set your Seerr address in Settings first."; return@LaunchedEffect }
         try {
@@ -520,6 +550,7 @@ fun TitleScreen(start: SeerrResult) {
             info = t
             SeerrExtras.put(t.result, t.imdbId, t.cert)
             picked = t.seasons.filter { it.status !in LOCKED_ST }.map { it.number }.toSet()
+            if (t.result.status == Seerr.AVAILABLE || t.result.status == Seerr.PARTIAL) libItem = findInLibrary(t.result)
             scores = s.scores(start.kind, start.id)
             recs = s.recommendations(start.kind, start.id)
         } catch (e: Exception) { error = "Couldn't load from Seerr: ${e.message}" }
@@ -569,12 +600,13 @@ fun TitleScreen(start: SeerrResult) {
                 if (t != null) {
                     val st = r.status
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val rk = r.ratingKey
-                        if ((st == Seerr.AVAILABLE || st == Seerr.PARTIAL) && rk != null) {
-                            Button(onClick = { nav.open(Item(JSONObject().put("ratingKey", rk).put("type", if (r.kind == "movie") "movie" else "show").put("title", r.title))) },
+                        val lib = libItem
+                        if ((st == Seerr.AVAILABLE || st == Seerr.PARTIAL) && lib != null) {
+                            Button(onClick = { scope.launch { playFromLibrary(lib) } },
                                 colors = ButtonDefaults.buttonColors(containerColor = LocalAccent.current, contentColor = Color.Black)) {
-                                Icon(Icons.Filled.PlayArrow, null); Text("Open", fontWeight = FontWeight.Bold)
+                                Icon(Icons.Filled.PlayArrow, null); Text("Play", fontWeight = FontWeight.Bold)
                             }
+                            OutlinedButton(onClick = { nav.open(lib) }) { Text("Open") }
                         }
                         val canRequest = if (r.kind == "movie") st != Seerr.AVAILABLE && st != Seerr.PENDING && st != Seerr.PROCESSING
                                          else t.seasons.any { it.status !in LOCKED_ST }
