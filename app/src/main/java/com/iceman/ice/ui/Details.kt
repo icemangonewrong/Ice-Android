@@ -282,20 +282,6 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
             }
         }
         if (episodes == null) item { Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { Spinner() } }
-        // Episodes not here yet (from Seerr): ones still to air with their dates, and any that are out but missing.
-        if (coming.isNotEmpty()) {
-            item { Text("Not in your library yet", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp)) }
-            items(coming, key = { "coming-${it.number}" }) { e ->
-                val d = parseDay(e.airDate)
-                val future = d == null || d.after(java.util.Date())
-                Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${e.number}. ${e.name.ifEmpty { "Episode ${e.number}" }}", color = TextColor.copy(alpha = 0.8f),
-                        fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.weight(1f))
-                    Text(if (e.airDate.isEmpty()) "Date not announced" else if (future) "Airs ${weekdayDate(e.airDate)}" else "Aired ${niceDate(e.airDate)}",
-                        color = if (future) LocalAccent.current else Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
         else items(episodes, key = { it.key }) { ep ->
             Row(Modifier.fillMaxWidth().clickable { nav.open(ep) }.padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box {
@@ -311,6 +297,20 @@ private fun SeasonPage(item: Item, episodes: List<Item>?) {
                         color = Muted, fontSize = 12.sp)
                 }
                 if (ep.showCheck) Icon(Icons.Filled.CheckCircle, null, tint = LocalAccent.current)
+            }
+        }
+        // Episodes not here yet (from Seerr): ones still to air with their dates, and any that are out but missing.
+        if (coming.isNotEmpty()) {
+            item { Text("Not in your library yet", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 4.dp)) }
+            items(coming, key = { "coming-${it.number}" }) { e ->
+                val d = parseDay(e.airDate)
+                val future = d == null || d.after(java.util.Date())
+                Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${e.number}. ${e.name.ifEmpty { "Episode ${e.number}" }}", color = TextColor.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.weight(1f))
+                    Text(if (e.airDate.isEmpty()) "Date not announced" else if (future) "Airs ${weekdayDate(e.airDate)}" else "Aired ${niceDate(e.airDate)}",
+                        color = if (future) LocalAccent.current else Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
