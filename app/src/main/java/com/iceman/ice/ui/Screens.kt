@@ -1,5 +1,7 @@
 package com.iceman.ice.ui
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -206,14 +208,23 @@ fun HomeScreen() {
     var cw by remember { mutableStateOf<List<Item>?>(null) }
     var recent by remember { mutableStateOf<List<Pair<Section, List<Item>>>>(emptyList()) }
     var err by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(version, excluded) {
+    // Reload when Home is shown again or the app comes back from the background, so Recently Added keeps up.
+    var tick by remember { mutableStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
+    LaunchedEffect(version, excluded, tick) {
         try {
             val c = AppState.client
             cw = c.continueWatching().filter { !AppState.isExcluded(it) }
             AppState.loadSections()
-            recent = AppState.visibleSections.map { s -> s to (try { c.recentlyAdded(s.key) } catch (_: Exception) { emptyList() }) }
+            val old = recent.toMap()
+            recent = AppState.visibleSections.map { s ->
+                s to (try { c.recentlyAdded(s.key) } catch (_: Exception) { old.entries.firstOrNull { it.key.key == s.key }?.value ?: emptyList() })
+            }
             err = null
-        } catch (e: Exception) { if (cw == null) err = e.message ?: "Couldn't reach the Plex server." }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (cw == null) err = e.message ?: "Couldn't reach the Plex server."
+        }
     }
     if (cw == null && err == null) { CenterSpinner(); return }
     if (cw == null) { Message(err!!); return }
