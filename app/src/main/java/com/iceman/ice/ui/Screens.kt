@@ -279,6 +279,20 @@ fun LibraryGridScreen(section: Section, initialSort: String? = null) {
         loading = true
         scope.launch {
             try {
+                if (sort == "imdb" || sort == "popular") {
+                    // Plex can't sort by these: load the whole library and sort it here with IMDb's numbers.
+                    val all = mutableListOf<Item>()
+                    while (true) {
+                        val (list, t) = AppState.client.library(section.key, "titleSort", unwatched, all.size, 300)
+                        all.addAll(list)
+                        if (list.size < 300 || (t >= 0 && all.size >= t)) break
+                    }
+                    val sorted = if (sort == "imdb") all.sortedByDescending { it.imdbRating ?: -1.0 }
+                                 else all.sortedByDescending { com.iceman.ice.data.Imdb.votes(it.imdbId) ?: -1 }
+                    items.clear(); items.addAll(sorted); total = items.size
+                    loading = false
+                    return@launch
+                }
                 val (list, t) = AppState.client.library(section.key, sort, unwatched, items.size, 60)
                 items.addAll(list); total = if (t >= 0) t else if (list.isEmpty()) items.size else -1
                 if (list.isEmpty()) total = items.size
@@ -294,7 +308,8 @@ fun LibraryGridScreen(section: Section, initialSort: String? = null) {
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val sorts = listOfNotNull("A–Z" to "titleSort",
                 if (section.type == "show") "Newest episode" to "episode.addedAt:desc" else null,
-                "Recently added" to "addedAt:desc", "Release date" to "originallyAvailableAt:desc")
+                "Recently added" to "addedAt:desc", "Release date" to "originallyAvailableAt:desc",
+                "IMDb rating" to "imdb", "Popular" to "popular")
             for ((label, key) in sorts) {
                 FilterChip(selected = sort == key, onClick = { sort = key }, label = { Text(label) })
             }

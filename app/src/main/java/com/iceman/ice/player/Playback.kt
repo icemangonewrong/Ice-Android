@@ -240,7 +240,8 @@ object Playback {
             var t = target
             try {
                 if (t.type == "show") t = c.nextEpisode(t.key) ?: run { error.value = "No episodes found."; return@launch }
-                if (t.partKey == null || t.fileSize == 0L) t = c.metadata(t.key) ?: t
+                // Always the latest details: the list this came from may be minutes old, and its resume point with it.
+                t = try { c.metadata(t.key) } catch (_: Exception) { null } ?: t
             } catch (e: Exception) {
                 error.value = e.message ?: "Couldn't reach the Plex server."
                 return@launch
@@ -273,6 +274,8 @@ object Playback {
         if (t.durationMs > 0 && resume > t.durationMs - 120_000) resume = 0
         positionMs.value = resume
         hasPlayed = false
+        pausedAt = 0
+        lastPos = -1
         finishing = false
         active.value = true
         buffering.value = true
@@ -307,6 +310,22 @@ object Playback {
             } catch (_: Exception) { sc.stop() }
         }
 
+        mediaUrl = url
+        openVlc(url, resume)
+        applyAudioDelay(toastIfChanged = false)
+
+        ticker?.cancel()
+        ticker = scope.launch { while (isActive) { tick(); delay(500) } }
+        fetchExtras(t)
+    }
+
+    private var mediaUrl: String? = null
+    private var lastMoveAt = 0L
+    private var lastPos = -1L
+    private var pausedAt = 0L
+    private var reopenAt = 0L
+
+    private fun openVlc(url: String, resumeMs: Long) {
         val p = MediaPlayer(vlc())
         player = p
         connectedView = null
@@ -317,15 +336,30 @@ object Playback {
         m.addOption(":sub-language=none")   // don't auto-pick a subtitle the file marks as default
         m.addOption(":audio-language=en,eng,English")   // English audio first (falls back to the file's default)
         m.addOption(":network-caching=1500")
-        if (resume > 1000) m.addOption(":start-time=${resume / 1000.0}")
+        if (resumeMs > 1000) m.addOption(":start-time=${resumeMs / 1000.0}")
         p.media = m
         m.release()
+        lastMoveAt = System.currentTimeMillis()
         p.play()
-        applyAudioDelay(toastIfChanged = false)
+        if (!wantsPlay) scope.launch { delay(500); if (!wantsPlay) player?.pause() }
+    }
 
-        ticker?.cancel()
-        ticker = scope.launch { while (isActive) { tick(); delay(500) } }
-        fetchExtras(t)
+    /** Stuck, errored or ended early: reopen at the same spot (the phone's cache keeps what's loaded). */
+    private fun reopen(why: String) {
+        val url = mediaUrl ?: return
+        if (!active.value || finishing) return
+        val now = System.currentTimeMillis()
+        if (now - reopenAt < 5000) return
+        reopenAt = now
+        android.util.Log.i("Ice", "Reopening at ${positionMs.value / 1000}s: $why")
+        val old = player
+        old?.setEventListener(null)
+        old?.stop()
+        old?.release()
+        player = null
+        buffering.value = true
+        openVlc(url, positionMs.value)
+        applyAudioDelay(toastIfChanged = false)
     }
 
     private fun fetchExtras(t: Item) {
@@ -411,7 +445,14 @@ object Playback {
 
     fun togglePause() {
         val p = player ?: return
-        if (wantsPlay) { wantsPlay = false; p.pause() } else { wantsPlay = true; p.play() }
+        if (wantsPlay) { wantsPlay = false; p.pause(); pausedAt = System.currentTimeMillis() }
+        else {
+            wantsPlay = true
+            val pausedFor = if (pausedAt > 0) System.currentTimeMillis() - pausedAt else 0L
+            pausedAt = 0
+            // After a long pause the connections behind the player may have gone stale: reopen fresh, like Plex.
+            if (pausedFor > 120_000 && hasPlayed) reopen("long pause") else p.play()
+        }
         playing.value = wantsPlay
         reportNow()
     }
@@ -495,7 +536,6 @@ object Playback {
         zoomStep = (zoomStep + 1) % 4
         zoom.value = levels[zoomStep]
         panX.value = 0f; panY.value = 0f
-        showToast(when (zoomStep) { 0 -> "Original size"; 3 -> "Zoom 3 of 3 · fill screen"; else -> "Zoom $zoomStep of 3" })
     }
 
     /** Pinch mode: scale by [factor] and move by [dx],[dy], kept inside the screen. */
@@ -512,7 +552,7 @@ object Playback {
     fun resetZoom(announce: Boolean = false) {
         val was = zoom.value != 1f
         zoomStep = 0; zoom.value = 1f; panX.value = 0f; panY.value = 0f
-        if (announce && was) showToast("Original size")
+        if (announce && was) Unit
     }
     fun expand() { if (active.value) showFull.value = true }
 
@@ -628,9 +668,14 @@ object Playback {
             MediaPlayer.Event.Playing -> { playing.value = true; buffering.value = false; applySubChoice() }
             MediaPlayer.Event.Paused -> playing.value = false
             MediaPlayer.Event.Buffering -> buffering.value = e.buffering < 100f
-            MediaPlayer.Event.EndReached -> finished()
+            MediaPlayer.Event.EndReached -> {
+                val d = durationMs.value
+                if (d > 0 && positionMs.value < d - 20_000) scope.launch { delay(2000); reopen("ended early (data hiccup)") }
+                else finished()
+            }
             MediaPlayer.Event.EncounteredError -> {
                 if (!hasPlayed) error.value = "This video couldn't be played.\nCheck your connection to the Plex server."
+                else scope.launch { delay(2000); reopen("player error") }
             }
             MediaPlayer.Event.LengthChanged -> if (e.lengthChanged > 0) durationMs.value = e.lengthChanged
         }
@@ -639,7 +684,10 @@ object Playback {
     private fun tick() {
         val p = player ?: return
         val t = p.time
-        if (t >= 0) positionMs.value = t
+        if (t >= 0 && player === p) {
+            if (t != lastPos) { lastPos = t; lastMoveAt = System.currentTimeMillis() }
+            if (t > 0) positionMs.value = t
+        }
         val len = p.length
         if (len > 0) durationMs.value = len
         val isPlaying = p.isPlaying
@@ -654,6 +702,11 @@ object Playback {
             bufferedSec.value = s.bufferedBytes / s.bytesPerSecond
             offline.value = s.offline
         }
+        // Stuck while it should be playing: reopen at the same spot (quickly when the video is already loaded).
+        if (wantsPlay && hasPlayed && !finishing && !switching.value) {
+            val stuck = System.currentTimeMillis() - lastMoveAt
+            if ((bufferedSec.value > 5 && stuck > 10_000) || stuck > 30_000) { lastMoveAt = System.currentTimeMillis(); reopen("stuck ${stuck / 1000}s") }
+        } else lastMoveAt = System.currentTimeMillis()
         updateMarkers()
         // VLC can switch on a default-marked subtitle a moment after starting; keep it to our choice.
         if (hasPlayed) { applySubChoice(); preferEnglishAudio() }
