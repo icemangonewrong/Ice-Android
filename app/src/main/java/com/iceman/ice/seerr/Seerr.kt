@@ -36,7 +36,7 @@ data class SeerrPerson(val id: Int?, val name: String, val role: String, val pho
 data class SeerrLink(val id: Int, val name: String, val poster: String? = null)
 data class SeerrService(val id: Int, val name: String, val logo: String?)
 data class CreditGroup(val name: String, val items: List<SeerrResult>)
-data class SeerrEpisode(val number: Int, val name: String, val airDate: String)
+data class SeerrEpisode(val number: Int, val name: String, val airDate: String, val overview: String = "", val still: String? = null)
 
 data class SeerrTitle(
     val result: SeerrResult, val imdbId: String?, val cert: String, val tagline: String, val runtime: Int?,
@@ -452,6 +452,9 @@ class Seerr(url: String, private val plexToken: String) {
     }
 
     suspend fun seasonEpisodes(tmdbId: Int, season: Int): List<SeerrEpisode> = withContext(Dispatchers.IO) {
-        obj("/tv/$tmdbId/season/$season").objs("episodes").map { SeerrEpisode(it.optInt("episodeNumber"), it.s("name"), it.s("airDate")) }
+        obj("/tv/$tmdbId/season/$season").objs("episodes").map {
+            SeerrEpisode(it.optInt("episodeNumber"), it.s("name"), it.s("airDate"), it.s("overview"),
+                         it.s("stillPath").ifEmpty { null }?.let { p -> "https://image.tmdb.org/t/p/w780$p" })
+        }
     }
 }

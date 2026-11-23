@@ -543,6 +543,13 @@ fun TitleScreen(start: SeerrResult) {
     var state by remember { mutableStateOf("") }
     var reqError by remember { mutableStateOf<String?>(null) }
     var libItem by remember { mutableStateOf<Item?>(null) }
+    var openSeason by remember { mutableStateOf<Int?>(null) }
+    val seasonEps = remember { mutableStateMapOf<Int, List<SeerrEpisode>>() }
+    LaunchedEffect(openSeason) {
+        val n = openSeason ?: return@LaunchedEffect
+        val s = sr ?: return@LaunchedEffect
+        if (seasonEps[n] == null) seasonEps[n] = try { s.seasonEpisodes(start.id, n).sortedByDescending { it.number } } catch (_: Exception) { emptyList() }
+    }
     LaunchedEffect(start.uid) {
         val s = sr ?: run { error = "Set your Seerr address in Settings first."; return@LaunchedEffect }
         try {
@@ -632,17 +639,49 @@ fun TitleScreen(start: SeerrResult) {
                         }
                     }
                     reqError?.let { Text(it, color = Color(0xFFFF6B6B), fontSize = 12.sp) }
+                    // Seasons: the circle picks one to request; tapping the rest opens its episodes (number, name,
+                    // air date, summary, picture), like Seerr.
                     if (r.kind == "tv") t.seasons.forEach { s ->
                         val locked = s.status in LOCKED_ST
-                        Row(Modifier.fillMaxWidth().clickable(enabled = !locked && state != "done") {
-                            picked = if (s.number in picked) picked - s.number else picked + s.number
-                        }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (locked || s.number in picked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, null,
-                                tint = if (locked) Muted else LocalAccent.current)
-                            Spacer(Modifier.width(10.dp))
-                            Text(s.name)
-                            Spacer(Modifier.width(8.dp))
-                            Text(listOfNotNull("${s.episodes} ep", Seerr.STATUS_TEXT[s.status]).joinToString(" · "), fontSize = 12.sp, color = Muted)
+                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.06f)).padding(horizontal = 12.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(if (locked || s.number in picked) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, null,
+                                    tint = if (locked) Muted else LocalAccent.current,
+                                    modifier = Modifier.clickable(enabled = !locked && state != "done") {
+                                        picked = if (s.number in picked) picked - s.number else picked + s.number
+                                    }.padding(vertical = 10.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Row(Modifier.weight(1f).clickable { openSeason = if (openSeason == s.number) null else s.number }
+                                    .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(s.name)
+                                        Text(listOfNotNull(s.airDate.ifEmpty { null }?.let { niceDate(it) }, "${s.episodes} ep",
+                                            Seerr.STATUS_TEXT[s.status]).joinToString(" · "), fontSize = 12.sp, color = Muted)
+                                    }
+                                    Text(if (openSeason == s.number) "▴" else "▾", color = Muted)
+                                }
+                            }
+                            if (openSeason == s.number) {
+                                val eps = seasonEps[s.number]
+                                if (eps == null) Text("Loading…", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                                else if (eps.isEmpty()) Text("No episode list yet.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                                else eps.forEach { e ->
+                                    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                                        Text("${e.number} - ${e.name}", fontWeight = FontWeight.SemiBold)
+                                        Text(if (e.airDate.isEmpty()) "Date not announced" else niceDate(e.airDate), fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(50))
+                                                .background(Color.White.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 2.dp))
+                                        if (e.overview.isNotEmpty()) Text(e.overview, color = Muted, fontSize = 14.sp)
+                                        e.still?.let { url ->
+                                            AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop,
+                                                modifier = Modifier.padding(top = 6.dp).fillMaxWidth()
+                                                    .aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
