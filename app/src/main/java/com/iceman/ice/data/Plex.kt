@@ -478,6 +478,49 @@ class PlexClient(val clientId: String) {
         Unit
     }
 
+    /** Downloads a subtitle file into [dir] and returns the file (null if it can't be had).
+     *  Plex's first answer for a subtitle it just downloaded can come back broken (it sends Content-Length
+     *  twice and nginx turns that into a 502), so a failed try waits and asks again. */
+    suspend fun localSubtitle(key: String, dir: java.io.File, tries: Int = 4): java.io.File? = withContext(Dispatchers.IO) {
+        val s = server ?: return@withContext null
+        dir.mkdirs()
+        var last = ""
+        for (n in 1..tries) {
+            try {
+                val c = URL(buildUrl(s.baseURL, key, emptyMap())).openConnection() as HttpURLConnection
+                try {
+                    c.connectTimeout = 8000
+                    c.readTimeout = 20000
+                    for ((k, v) in headers(s.accessToken)) c.setRequestProperty(k, v)
+                    val code = c.responseCode
+                    if (code !in 200..299) throw PlexException("Plex returned an error ($code).")
+                    val data = c.inputStream.use { it.readBytes() }
+                    if (data.isNotEmpty()) {
+                        val head = String(data.copyOf(minOf(400, data.size))).lowercase()
+                        val ext = when {
+                            "[script info]" in head -> "ass"
+                            head.trimStart().startsWith("webvtt") -> "vtt"
+                            "<sami" in head -> "smi"
+                            else -> "srt"
+                        }
+                        val f = java.io.File(dir, key.trim('/').replace('/', '_') + "." + ext)
+                        f.writeBytes(data)
+                        if (n > 1) android.util.Log.i("Ice", "subtitle $key: got it on try $n ($last)")
+                        return@withContext f
+                    }
+                    last = "empty answer"
+                } finally {
+                    c.disconnect()
+                }
+            } catch (e: Exception) {
+                last = e.message ?: e.toString()
+            }
+            android.util.Log.i("Ice", "subtitle $key: try $n failed ($last)")
+            if (n < tries) kotlinx.coroutines.delay(1500L * n)
+        }
+        null
+    }
+
     fun streamUrl(key: String): String? {
         val s = server ?: return null
         return buildUrl(s.baseURL, key, mapOf("X-Plex-Token" to s.accessToken))

@@ -269,6 +269,7 @@ object Playback {
         audioCheckUntil = System.currentTimeMillis() + 25_000
         plexEmbeddedSub = null
         plexExternalSubUrl = null
+        subFiles.clear()
         durationMs.value = t.durationMs
         var resume = if (fromStart) 0L else t.offsetMs
         if (t.durationMs > 0 && resume > t.durationMs - 120_000) resume = 0
@@ -373,6 +374,14 @@ object Playback {
             if (item.value?.key != t.key) return@launch
             if (full != null) {
                 markers = full.markers
+                // Fetched here with retries (Plex's first answer for a new subtitle can be broken, and VLC
+                // gives up on the first error); VLC gets the copy on the phone.
+                val dir = java.io.File(app.cacheDir, "subtitles")
+                for (sub in full.externalSubtitles) {
+                    val remote = c.streamUrl(sub.key) ?: continue
+                    c.localSubtitle(sub.key, dir)?.let { subFiles[remote] = Uri.fromFile(it).toString() }
+                }
+                if (item.value?.key != t.key) return@launch
                 pendingSubs = full.externalSubtitles.mapNotNull { c.streamUrl(it.key) }
                 // Subtitles stay off until you turn one on here (Plex's per-video choice isn't used).
                 if (hasPlayed) applySubChoice()
@@ -382,6 +391,9 @@ object Playback {
         }
     }
 
+    /** Subtitle files fetched to the phone: server address → local file address. */
+    private val subFiles = mutableMapOf<String, String>()
+
     private fun addPendingSubs() {
         val p = player ?: return
         if (!hasPlayed || pendingSubs.isEmpty()) return
@@ -389,7 +401,7 @@ object Playback {
         pendingSubs = emptyList()
         for (u in subs) try {
             val chosen = pickedSub == null && u == plexExternalSubUrl
-            p.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(u), chosen)
+            p.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(subFiles[u] ?: u), chosen)
             if (chosen) rememberCurrentSubLater()
         } catch (_: Exception) {}
     }
@@ -857,9 +869,11 @@ object Playback {
                     if (found != null) break
                 }
                 if (item.value?.key != key) return@launch
-                val url = found?.let { c.streamUrl(it.key) }
-                if (url == null) { showToast("The server didn't get those subtitles. Try another one."); return@launch }
-                player?.addSlave(IMedia.Slave.Type.Subtitle, Uri.parse(url), true)
+                if (found == null) { showToast("The server didn't get those subtitles. Try another one."); return@launch }
+                val file = c.localSubtitle(found.key, java.io.File(app.cacheDir, "subtitles"))
+                if (item.value?.key != key) return@launch
+                if (file == null) { showToast("The server has them but won't send them right now. Try again in a moment."); return@launch }
+                player?.addSlave(IMedia.Slave.Type.Subtitle, Uri.fromFile(file), true)
                 rememberCurrentSubLater()
                 showToast("Subtitles: ${sub.title}")
             } catch (e: Exception) {
